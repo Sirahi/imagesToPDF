@@ -7,14 +7,21 @@ The format is based on Keep a Changelog.
 ## [Unreleased]
 
 ### Added
-- Added strict in-canvas bounds so images cannot be dragged or resized outside the A4 page.
-- Added explicit button intent colors:
-  - Export button is green
-  - Delete button is red.
+- Added explicit interaction modes for editing:
+  - `Move` mode for drag-only positioning
+  - `Scale/Rotate` mode for resize plus slider-based rotation
+- Added a mode toggle switch UI with clear mode labeling.
+- Added a rotation slider (`0-360`) with per-image cached rotation values.
 
 ### Changed
-- Improved mobile stage sizing to fit available viewport width and height while preserving A4 aspect ratio.
-- Removed the "Selected image" side panel to simplify the mobile workflow.
+- Updated selection boundary behavior to center-point constraints (image center cannot leave canvas).
+- Improved mobile-first editing UX:
+  - compacted top spacing and controls for more canvas area
+  - removed transformer rotation handle in favor of slider-only rotation
+  - kept move-mode selection outline visible while dragging
+- Refined mode visuals:
+  - move mode outline uses green dashed border
+  - switch colors now indicate active mode (green for Move, blue for Scale/Rotate)
 
 ## [1.0.0] - 2026-02-28
 

@@ -9,6 +9,9 @@ type PlacedImage = {
   id: string;
   dataUrl: string;
   htmlImage: HTMLImageElement;
+  baseWidth: number;
+  baseHeight: number;
+  scalePercent: number;
   x: number;
   y: number;
   width: number;
@@ -21,10 +24,29 @@ const A4_WIDTH_PT = 595.28;
 const A4_HEIGHT_PT = 841.89;
 const MAX_FILES_PER_IMPORT = 12;
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
-const MIN_IMAGE_SIZE = 24;
+const DEFAULT_SCALE_PERCENT = 50;
 const createId = () =>
   globalThis.crypto?.randomUUID?.() ?? `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+const scaleFactorFromPercent = (percent: number) => {
+  if (percent <= 50) {
+    return 0.2 + (percent / 50) * 0.8;
+  }
+  return 1 + ((percent - 50) / 50) * 4;
+};
+const normalizeRotation = (value: number) => {
+  const normalized = ((value % 360) + 360) % 360;
+  return normalized === 0 && value > 0 ? 360 : normalized;
+};
+const getImageCenter = (x: number, y: number, width: number, height: number, rotation: number) => {
+  const angle = (rotation * Math.PI) / 180;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return {
+    x: x + (cos * width) / 2 - (sin * height) / 2,
+    y: y + (sin * width) / 2 + (cos * height) / 2
+  };
+};
 
 const readFileAsDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
@@ -49,11 +71,13 @@ const App = () => {
 
   const [items, setItems] = useState<PlacedImage[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [interactionMode, setInteractionMode] = useState<'move' | 'transform'>('move');
   const [isExporting, setIsExporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const [maxStageHeight, setMaxStageHeight] = useState(0);
   const { debugEnabled, showDebug, setShowDebug, debugEntries, appendDebug, clearDebug } = useDebugLogger();
+  const selectedItem = items.find((item) => item.id === selectedId) ?? null;
 
   useEffect(() => {
     const element = stageContainerRef.current;
@@ -92,14 +116,14 @@ const App = () => {
   }, [containerWidth, maxStageHeight]);
 
   const stageHeight = stageWidth / A4_RATIO;
-  const constrainToStage = (x: number, y: number, width: number, height: number) => {
-    const nextWidth = clamp(width, MIN_IMAGE_SIZE, stageWidth);
-    const nextHeight = clamp(height, MIN_IMAGE_SIZE, stageHeight);
+  const rotateAnchorOffset = -Math.abs(selectedItem?.height ?? 0) / 2;
+  const constrainPositionByCenter = (x: number, y: number, width: number, height: number, rotation: number) => {
+    const center = getImageCenter(x, y, width, height, rotation);
+    const clampedCenterX = clamp(center.x, 0, stageWidth);
+    const clampedCenterY = clamp(center.y, 0, stageHeight);
     return {
-      x: clamp(x, 0, stageWidth - nextWidth),
-      y: clamp(y, 0, stageHeight - nextHeight),
-      width: nextWidth,
-      height: nextHeight
+      x: x + (clampedCenterX - center.x),
+      y: y + (clampedCenterY - center.y)
     };
   };
 
@@ -155,20 +179,20 @@ const App = () => {
         const htmlImage = await loadImage(dataUrl);
         const baseWidth = Math.min(stageWidth * 0.35, htmlImage.width);
         const baseHeight = (baseWidth / htmlImage.width) * htmlImage.height;
-        const placement = constrainToStage(
-          stageWidth / 2 - baseWidth / 2,
-          stageHeight / 2 - baseHeight / 2,
-          baseWidth,
-          baseHeight
-        );
+        const initialFactor = scaleFactorFromPercent(DEFAULT_SCALE_PERCENT);
+        const initialWidth = baseWidth * initialFactor;
+        const initialHeight = baseHeight * initialFactor;
         incoming.push({
           id: createId(),
           dataUrl,
           htmlImage,
-          x: placement.x,
-          y: placement.y,
-          width: placement.width,
-          height: placement.height,
+          baseWidth,
+          baseHeight,
+          scalePercent: DEFAULT_SCALE_PERCENT,
+          x: stageWidth / 2 - initialWidth / 2,
+          y: stageHeight / 2 - initialHeight / 2,
+          width: initialWidth,
+          height: initialHeight,
           rotation: 0
         });
       } catch (error) {
@@ -196,6 +220,67 @@ const App = () => {
 
   const updateItem = (id: string, patch: Partial<PlacedImage>) => {
     setItems((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  };
+  const toggleInteractionMode = () => {
+    setInteractionMode((current) => (current === 'move' ? 'transform' : 'move'));
+  };
+  const setItemScale = (id: string, nextScalePercent: number) => {
+    const safeScalePercent = clamp(nextScalePercent, 0, 100);
+    setItems((current) =>
+      current.map((item) => {
+        if (item.id !== id) {
+          return item;
+        }
+
+        const factor = scaleFactorFromPercent(safeScalePercent);
+        const nextWidth = item.baseWidth * factor;
+        const nextHeight = item.baseHeight * factor;
+        const angle = (item.rotation * Math.PI) / 180;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const centerX = item.x + (cos * item.width) / 2 - (sin * item.height) / 2;
+        const centerY = item.y + (sin * item.width) / 2 + (cos * item.height) / 2;
+        const nextX = centerX - (cos * nextWidth) / 2 + (sin * nextHeight) / 2;
+        const nextY = centerY - (sin * nextWidth) / 2 - (cos * nextHeight) / 2;
+        const constrained = constrainPositionByCenter(nextX, nextY, nextWidth, nextHeight, item.rotation);
+
+        return {
+          ...item,
+          scalePercent: safeScalePercent,
+          x: constrained.x,
+          y: constrained.y,
+          width: nextWidth,
+          height: nextHeight,
+          baseWidth: nextWidth / factor,
+          baseHeight: nextHeight / factor
+        };
+      })
+    );
+  };
+  const setItemRotation = (id: string, nextRotation: number) => {
+    const normalized = normalizeRotation(nextRotation);
+    setItems((current) =>
+      current.map((item) => {
+        if (item.id !== id) {
+          return item;
+        }
+
+        const center = getImageCenter(item.x, item.y, item.width, item.height, item.rotation);
+        const angle = (normalized * Math.PI) / 180;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const nextX = center.x - (cos * item.width) / 2 + (sin * item.height) / 2;
+        const nextY = center.y - (sin * item.width) / 2 - (cos * item.height) / 2;
+        const constrained = constrainPositionByCenter(nextX, nextY, item.width, item.height, normalized);
+
+        return {
+          ...item,
+          x: constrained.x,
+          y: constrained.y,
+          rotation: normalized
+        };
+      })
+    );
   };
 
   const deleteSelected = () => {
@@ -252,11 +337,6 @@ const App = () => {
 
   return (
     <div className="app-shell">
-      <header>
-        <h1>A4 Cake Decoration Composer</h1>
-        <p>Create an A4 PDF, then print at <strong>Actual size / 100%</strong>.</p>
-      </header>
-
       <div className="toolbar">
         <label className="button primary">
           Add image
@@ -267,6 +347,46 @@ const App = () => {
           {isExporting ? 'Exporting…' : 'Export A4 PDF'}
         </button>
       </div>
+
+      <div className="mode-row">
+        <label className="mode-switch" htmlFor="mode-switch">
+          <span className="mode-label mode-label-move">Move</span>
+          <input
+            id="mode-switch"
+            type="checkbox"
+            checked={interactionMode === 'transform'}
+            onChange={toggleInteractionMode}
+            aria-label="Toggle between move mode and scale/rotate mode"
+          />
+          <span className="mode-slider" aria-hidden="true" />
+          <span className="mode-label mode-label-transform">Scale/Rotate</span>
+        </label>
+      </div>
+
+      {selectedItem && interactionMode === 'transform' ? (
+        <div className="selection-controls">
+          <label htmlFor="scale-slider">Scale</label>
+          <input
+            id="scale-slider"
+            type="range"
+            min={0}
+            max={100}
+            value={selectedItem.scalePercent}
+            onChange={(event) => setItemScale(selectedItem.id, Number(event.target.value))}
+          />
+          <span>{Math.round(scaleFactorFromPercent(selectedItem.scalePercent) * 100)}%</span>
+          <label htmlFor="rotation-slider">Rotation</label>
+          <input
+            id="rotation-slider"
+            type="range"
+            min={0}
+            max={360}
+            value={Math.round(normalizeRotation(selectedItem.rotation))}
+            onChange={(event) => setItemRotation(selectedItem.id, Number(event.target.value))}
+          />
+          <span>{Math.round(normalizeRotation(selectedItem.rotation))}°</span>
+        </div>
+      ) : null}
 
       <DebugPanel
         debugEnabled={debugEnabled}
@@ -307,15 +427,41 @@ const App = () => {
                   width={item.width}
                   height={item.height}
                   rotation={item.rotation}
-                  draggable
+                  draggable={interactionMode === 'move' && selectedId === item.id}
                   dragBoundFunc={(position) => {
-                    const constrained = constrainToStage(position.x, position.y, item.width, item.height);
-                    return { x: constrained.x, y: constrained.y };
+                    return constrainPositionByCenter(
+                      position.x,
+                      position.y,
+                      item.width,
+                      item.height,
+                      item.rotation
+                    );
                   }}
                   onTap={() => setSelectedId(item.id)}
                   onClick={() => setSelectedId(item.id)}
+                  onDragMove={(event) => {
+                    if (interactionMode !== 'move' || selectedId !== item.id) {
+                      return;
+                    }
+                    updateItem(item.id, { x: event.target.x(), y: event.target.y() });
+                  }}
+                  onTransform={(event) => {
+                    const node = event.target;
+                    const transformer = transformerRef.current;
+                    if (!transformer || transformer.nodes()[0] !== node) {
+                      return;
+                    }
+                    transformer.rotateAnchorOffset(-Math.abs(node.height() * node.scaleY()) / 2);
+                    transformer.getLayer()?.batchDraw();
+                  }}
                   onDragEnd={(event) => {
-                    const constrained = constrainToStage(event.target.x(), event.target.y(), item.width, item.height);
+                    const constrained = constrainPositionByCenter(
+                      event.target.x(),
+                      event.target.y(),
+                      item.width,
+                      item.height,
+                      item.rotation
+                    );
                     updateItem(item.id, { x: constrained.x, y: constrained.y });
                   }}
                   onTransformEnd={(event) => {
@@ -324,47 +470,46 @@ const App = () => {
                     const scaleY = node.scaleY();
                     node.scaleX(1);
                     node.scaleY(1);
-                    const constrained = constrainToStage(
+                    const nextWidth = node.width() * scaleX;
+                    const nextHeight = node.height() * scaleY;
+                    const nextRotation = normalizeRotation(node.rotation());
+                    const constrained = constrainPositionByCenter(
                       node.x(),
                       node.y(),
-                      node.width() * scaleX,
-                      node.height() * scaleY
+                      nextWidth,
+                      nextHeight,
+                      nextRotation
                     );
                     updateItem(item.id, {
                       x: constrained.x,
                       y: constrained.y,
-                      width: constrained.width,
-                      height: constrained.height,
-                      rotation: node.rotation()
+                      width: nextWidth,
+                      height: nextHeight,
+                      baseWidth: nextWidth / scaleFactorFromPercent(item.scalePercent),
+                      baseHeight: nextHeight / scaleFactorFromPercent(item.scalePercent),
+                      rotation: nextRotation
                     });
+                    const transformer = transformerRef.current;
+                    if (transformer && transformer.nodes()[0] === node) {
+                      transformer.rotateAnchorOffset(-Math.abs(nextHeight) / 2);
+                    }
                   }}
                 />
               ))}
-
               <Transformer
                 ref={transformerRef}
-                rotateEnabled
+                listening={interactionMode === 'transform'}
+                rotateEnabled={false}
+                rotateAnchorOffset={rotateAnchorOffset}
+                borderStroke={interactionMode === 'move' ? '#16a34a' : '#2563eb'}
+                borderStrokeWidth={2}
+                borderDash={interactionMode === 'move' ? [6, 4] : []}
                 keepRatio={false}
-                enabledAnchors={[
-                  'top-left',
-                  'top-right',
-                  'bottom-left',
-                  'bottom-right',
-                  'middle-left',
-                  'middle-right',
-                  'top-center',
-                  'bottom-center'
-                ]}
-                boundBoxFunc={(oldBox, newBox) => {
-                  const constrained = constrainToStage(newBox.x, newBox.y, newBox.width, newBox.height);
-                  return {
-                    ...newBox,
-                    x: constrained.x,
-                    y: constrained.y,
-                    width: constrained.width,
-                    height: constrained.height
-                  };
-                }}
+                enabledAnchors={
+                  interactionMode === 'transform'
+                    ? ['middle-left', 'middle-right', 'top-center', 'bottom-center']
+                    : []
+                }
               />
             </Layer>
           </Stage>
