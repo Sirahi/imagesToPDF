@@ -20,6 +20,10 @@ type PlacedImage = {
   height: number;
   rotation: number;
 };
+type SnapGuides = {
+  vertical: number | null;
+  horizontal: number | null;
+};
 
 const A4_RATIO = 210 / 297;
 const A4_WIDTH_PT = 595.28;
@@ -145,11 +149,12 @@ const App = () => {
   const [items, setItems] = useState<PlacedImage[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [interactionMode, setInteractionMode] = useState<'move' | 'transform'>('move');
+  const [snapEnabled, setSnapEnabled] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const [maxStageHeight, setMaxStageHeight] = useState(0);
-  const [snapGuides, setSnapGuides] = useState({ centerX: false, centerY: false });
+  const [snapGuides, setSnapGuides] = useState<SnapGuides>({ vertical: null, horizontal: null });
   const { debugEnabled, showDebug, setShowDebug, debugEntries, appendDebug, clearDebug } = useDebugLogger();
   const selectedItem = items.find((item) => item.id === selectedId) ?? null;
 
@@ -200,44 +205,66 @@ const App = () => {
       y: y + (clampedCenterY - center.y)
     };
   };
-  const snapPositionToCanvasEdgesAndCenter = (
+  const findClosestSnap = (anchors: number[], targets: number[]) => {
+    let bestDistance = SNAP_DISTANCE_PX + 1;
+    let bestDelta = 0;
+    let bestGuide: number | null = null;
+
+    for (const anchor of anchors) {
+      for (const target of targets) {
+        const distance = Math.abs(target - anchor);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestDelta = target - anchor;
+          bestGuide = target;
+        }
+      }
+    }
+
+    return bestGuide === null ? { delta: 0, guide: null } : { delta: bestDelta, guide: bestGuide };
+  };
+  const snapPositionToGuides = (
+    movingId: string,
     x: number,
     y: number,
     width: number,
     height: number,
     rotation: number
   ) => {
-    const bounds = getRotatedBounds(x, y, width, height, rotation);
-    const leftGap = Math.abs(bounds.minX);
-    const rightGap = Math.abs(stageWidth - bounds.maxX);
-    const topGap = Math.abs(bounds.minY);
-    const bottomGap = Math.abs(stageHeight - bounds.maxY);
+    const movingBounds = getRotatedBounds(x, y, width, height, rotation);
+    const movingXAnchors = [movingBounds.minX, (movingBounds.minX + movingBounds.maxX) / 2, movingBounds.maxX];
+    const movingYAnchors = [movingBounds.minY, (movingBounds.minY + movingBounds.maxY) / 2, movingBounds.maxY];
 
-    let snappedX = x;
-    let snappedY = y;
-
-    if (leftGap <= SNAP_DISTANCE_PX || rightGap <= SNAP_DISTANCE_PX) {
-      snappedX += leftGap <= rightGap ? -bounds.minX : stageWidth - bounds.maxX;
-    }
-    if (topGap <= SNAP_DISTANCE_PX || bottomGap <= SNAP_DISTANCE_PX) {
-      snappedY += topGap <= bottomGap ? -bounds.minY : stageHeight - bounds.maxY;
-    }
-
-    const center = getImageCenter(snappedX, snappedY, width, height, rotation);
-    const stageCenterX = stageWidth / 2;
-    const stageCenterY = stageHeight / 2;
-    const snapToCenterX = Math.abs(center.x - stageCenterX) <= SNAP_DISTANCE_PX;
-    const snapToCenterY = Math.abs(center.y - stageCenterY) <= SNAP_DISTANCE_PX;
-
-    if (snapToCenterX) {
-      snappedX += stageCenterX - center.x;
-    }
-    if (snapToCenterY) {
-      snappedY += stageCenterY - center.y;
+    const targetX = [0, stageWidth / 2, stageWidth];
+    const targetY = [0, stageHeight / 2, stageHeight];
+    for (const item of items) {
+      if (item.id === movingId) {
+        continue;
+      }
+      const bounds = getRotatedBounds(item.x, item.y, item.width, item.height, item.rotation);
+      targetX.push(bounds.minX, (bounds.minX + bounds.maxX) / 2, bounds.maxX);
+      targetY.push(bounds.minY, (bounds.minY + bounds.maxY) / 2, bounds.maxY);
     }
 
-    return { x: snappedX, y: snappedY, snapToCenterX, snapToCenterY };
+    const snapX = findClosestSnap(movingXAnchors, targetX);
+    const snapY = findClosestSnap(movingYAnchors, targetY);
+
+    return {
+      x: x + snapX.delta,
+      y: y + snapY.delta,
+      guideX: snapX.guide,
+      guideY: snapY.guide
+    };
   };
+
+  useEffect(() => {
+    setSnapGuides({ vertical: null, horizontal: null });
+  }, [interactionMode, selectedId]);
+  useEffect(() => {
+    if (!snapEnabled) {
+      setSnapGuides({ vertical: null, horizontal: null });
+    }
+  }, [snapEnabled]);
 
   const bindTransformer = () => {
     const transformer = transformerRef.current;
@@ -494,18 +521,31 @@ const App = () => {
       </div>
 
       <div className="mode-row">
-        <label className="mode-switch" htmlFor="mode-switch">
-          <span className="mode-label mode-label-move">Move</span>
-          <input
-            id="mode-switch"
-            type="checkbox"
-            checked={interactionMode === 'transform'}
-            onChange={toggleInteractionMode}
-            aria-label="Toggle between move mode and stretch mode"
-          />
-          <span className="mode-slider" aria-hidden="true" />
-          <span className="mode-label mode-label-transform">Stretch</span>
-        </label>
+        <div className="switch-group">
+          <label className="mode-switch" htmlFor="mode-switch">
+            <span className="mode-label mode-label-move">Move</span>
+            <input
+              id="mode-switch"
+              type="checkbox"
+              checked={interactionMode === 'transform'}
+              onChange={toggleInteractionMode}
+              aria-label="Toggle between move mode and stretch mode"
+            />
+            <span className="mode-slider" aria-hidden="true" />
+            <span className="mode-label mode-label-transform">Stretch</span>
+          </label>
+          <label className="mode-switch snap-switch" htmlFor="snap-switch">
+            <span className="mode-label mode-label-snap">Snap</span>
+            <input
+              id="snap-switch"
+              type="checkbox"
+              checked={snapEnabled}
+              onChange={() => setSnapEnabled((current) => !current)}
+              aria-label="Toggle snapping guides and snapping behavior"
+            />
+            <span className="mode-slider" aria-hidden="true" />
+          </label>
+        </div>
         <button
           type="button"
           className="undo-button"
@@ -570,18 +610,18 @@ const App = () => {
           >
             <Layer>
               <Rect width={stageWidth} height={stageHeight} fill="#fff" stroke="#ccc" strokeWidth={2} cornerRadius={0} />
-              {interactionMode === 'move' && snapGuides.centerX ? (
+              {interactionMode === 'move' && snapEnabled && snapGuides.vertical !== null ? (
                 <Line
-                  points={[stageWidth / 2, 0, stageWidth / 2, stageHeight]}
+                  points={[snapGuides.vertical, 0, snapGuides.vertical, stageHeight]}
                   stroke="#a855f7"
                   strokeWidth={2}
                   dash={[6, 6]}
                   listening={false}
                 />
               ) : null}
-              {interactionMode === 'move' && snapGuides.centerY ? (
+              {interactionMode === 'move' && snapEnabled && snapGuides.horizontal !== null ? (
                 <Line
-                  points={[0, stageHeight / 2, stageWidth, stageHeight / 2]}
+                  points={[0, snapGuides.horizontal, stageWidth, snapGuides.horizontal]}
                   stroke="#a855f7"
                   strokeWidth={2}
                   dash={[6, 6]}
@@ -609,7 +649,11 @@ const App = () => {
                       item.height,
                       item.rotation
                     );
-                    const snapped = snapPositionToCanvasEdgesAndCenter(
+                    if (!snapEnabled) {
+                      return constrained;
+                    }
+                    const snapped = snapPositionToGuides(
+                      item.id,
                       constrained.x,
                       constrained.y,
                       item.width,
@@ -617,9 +661,9 @@ const App = () => {
                       item.rotation
                     );
                     setSnapGuides((current) =>
-                      current.centerX === snapped.snapToCenterX && current.centerY === snapped.snapToCenterY
+                      current.vertical === snapped.guideX && current.horizontal === snapped.guideY
                         ? current
-                        : { centerX: snapped.snapToCenterX, centerY: snapped.snapToCenterY }
+                        : { vertical: snapped.guideX, horizontal: snapped.guideY }
                     );
                     return constrainPositionByCenter(
                       snapped.x,
@@ -647,7 +691,7 @@ const App = () => {
                     transformer.getLayer()?.batchDraw();
                   }}
                   onDragEnd={(event) => {
-                    setSnapGuides({ centerX: false, centerY: false });
+                    setSnapGuides({ vertical: null, horizontal: null });
                     const constrained = constrainPositionByCenter(
                       event.target.x(),
                       event.target.y(),

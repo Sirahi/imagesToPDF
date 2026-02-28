@@ -33,6 +33,8 @@ The format is based on Keep a Changelog.
 - Changed A4 canvas corners from rounded to square.
 - Added edge snapping while moving images near canvas borders.
 - Added center snapping guides (purple dashed lines) for canvas horizontal/vertical center alignment.
+- Added smart snapping to other images (edge and center alignment), similar to Canva-style guides.
+- Added a dedicated `Snap` toggle switch to enable/disable snapping and guide lines during move mode.
 
 ### Fixed
 - Fixed phone-photo orientation mismatch in exported PDFs by normalizing imported image pixels before rendering/export.

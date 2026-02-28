@@ -38,6 +38,13 @@ h1 {
   margin: 0 0 0.6rem 0;
 }
 
+.switch-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
 .undo-button {
   width: 34px;
   height: 34px;
@@ -72,6 +79,10 @@ h1 {
 
 .mode-label-transform {
   color: #2563eb;
+}
+
+.mode-label-snap {
+  color: #a855f7;
 }
 
 .mode-switch input {
@@ -117,6 +128,20 @@ h1 {
 .mode-switch input:focus-visible + .mode-slider {
   outline: 2px solid #2563eb;
   outline-offset: 2px;
+}
+
+.snap-switch .mode-slider {
+  background: #9ca3af;
+  border-color: #9ca3af;
+}
+
+.snap-switch input:checked + .mode-slider {
+  background: #a855f7;
+  border-color: #a855f7;
+}
+
+.snap-switch input:focus-visible + .mode-slider {
+  outline-color: #a855f7;
 }
 
 .selection-controls {
