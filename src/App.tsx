@@ -19,6 +19,8 @@ type PlacedImage = {
 const A4_RATIO = 210 / 297;
 const A4_WIDTH_PT = 595.28;
 const A4_HEIGHT_PT = 841.89;
+const MAX_FILES_PER_IMPORT = 12;
+const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 const createId = () =>
   globalThis.crypto?.randomUUID?.() ?? `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
@@ -81,9 +83,30 @@ const App = () => {
     }
 
     setImportError(null);
+    const selectedFiles = Array.from(fileList);
+    const filesToProcess = selectedFiles.slice(0, MAX_FILES_PER_IMPORT);
+    if (selectedFiles.length > MAX_FILES_PER_IMPORT) {
+      setImportError(
+        `You selected ${selectedFiles.length} files. Only the first ${MAX_FILES_PER_IMPORT} were processed.`
+      );
+      appendDebug(`File count limited to ${MAX_FILES_PER_IMPORT}.`);
+    }
+
     const incoming: PlacedImage[] = [];
     const failedNames: string[] = [];
-    for (const file of Array.from(fileList)) {
+    for (const file of filesToProcess) {
+      if (!file.type.startsWith('image/')) {
+        failedNames.push(file.name);
+        appendDebug(`Failed file: ${file.name} -> unsupported file type (${file.type || 'unknown'})`);
+        continue;
+      }
+
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        failedNames.push(file.name);
+        appendDebug(`Failed file: ${file.name} -> file too large (${file.size} bytes)`);
+        continue;
+      }
+
       try {
         const dataUrl = await readFileAsDataUrl(file);
         const htmlImage = await loadImage(dataUrl);

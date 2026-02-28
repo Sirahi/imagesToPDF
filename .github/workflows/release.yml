@@ -28,6 +28,14 @@ jobs:
       - name: Validate and checkout manual release tag
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
+          RELEASE_TAG="${{ github.event.inputs.release_tag }}"
+
+          if ! echo "${RELEASE_TAG}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Invalid release_tag format: ${RELEASE_TAG}"
+            echo "Expected format: vMAJOR.MINOR.PATCH (example: v1.0.0)"
+            exit 1
+          fi
+
           git rev-parse --verify "refs/tags/${{ github.event.inputs.release_tag }}"
           git checkout "refs/tags/${{ github.event.inputs.release_tag }}"
 
