@@ -205,23 +205,56 @@ const App = () => {
       y: y + (clampedCenterY - center.y)
     };
   };
-  const findClosestSnap = (anchors: number[], targets: number[]) => {
-    let bestDistance = SNAP_DISTANCE_PX + 1;
-    let bestDelta = 0;
-    let bestGuide: number | null = null;
-
-    for (const anchor of anchors) {
-      for (const target of targets) {
-        const distance = Math.abs(target - anchor);
-        if (distance < bestDistance) {
-          bestDistance = distance;
-          bestDelta = target - anchor;
-          bestGuide = target;
+  const findClosestSnap = (
+    anchors: Array<{ value: number; kind: 'center' | 'edge' }>,
+    targets: Array<{ value: number; kind: 'center' | 'edge' }>,
+    preferredGuide: number | null
+  ) => {
+    if (preferredGuide !== null) {
+      let preferredDistance = SNAP_DISTANCE_PX + 1;
+      let preferredDelta = 0;
+      for (const anchor of anchors) {
+        const distance = Math.abs(preferredGuide - anchor.value);
+        if (distance < preferredDistance) {
+          preferredDistance = distance;
+          preferredDelta = preferredGuide - anchor.value;
         }
+      }
+      if (preferredDistance <= SNAP_DISTANCE_PX) {
+        return { delta: preferredDelta, guide: preferredGuide };
       }
     }
 
-    return bestGuide === null ? { delta: 0, guide: null } : { delta: bestDelta, guide: bestGuide };
+    const findByPriority = (anchorKind: 'center' | 'edge' | 'any', targetKind: 'center' | 'edge' | 'any') => {
+      let bestDistance = SNAP_DISTANCE_PX + 1;
+      let bestDelta = 0;
+      let bestGuide: number | null = null;
+
+      for (const anchor of anchors) {
+        if (anchorKind !== 'any' && anchor.kind !== anchorKind) {
+          continue;
+        }
+        for (const target of targets) {
+          if (targetKind !== 'any' && target.kind !== targetKind) {
+            continue;
+          }
+          const distance = Math.abs(target.value - anchor.value);
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            bestDelta = target.value - anchor.value;
+            bestGuide = target.value;
+          }
+        }
+      }
+
+      return bestGuide === null ? null : { delta: bestDelta, guide: bestGuide };
+    };
+
+    return (
+      findByPriority('center', 'center') ??
+      findByPriority('edge', 'edge') ??
+      findByPriority('any', 'any') ?? { delta: 0, guide: null }
+    );
   };
   const snapPositionToGuides = (
     movingId: string,
@@ -229,25 +262,51 @@ const App = () => {
     y: number,
     width: number,
     height: number,
-    rotation: number
+    rotation: number,
+    preferredVerticalGuide: number | null,
+    preferredHorizontalGuide: number | null
   ) => {
     const movingBounds = getRotatedBounds(x, y, width, height, rotation);
-    const movingXAnchors = [movingBounds.minX, (movingBounds.minX + movingBounds.maxX) / 2, movingBounds.maxX];
-    const movingYAnchors = [movingBounds.minY, (movingBounds.minY + movingBounds.maxY) / 2, movingBounds.maxY];
+    const movingXAnchors = [
+      { value: movingBounds.minX, kind: 'edge' as const },
+      { value: (movingBounds.minX + movingBounds.maxX) / 2, kind: 'center' as const },
+      { value: movingBounds.maxX, kind: 'edge' as const }
+    ];
+    const movingYAnchors = [
+      { value: movingBounds.minY, kind: 'edge' as const },
+      { value: (movingBounds.minY + movingBounds.maxY) / 2, kind: 'center' as const },
+      { value: movingBounds.maxY, kind: 'edge' as const }
+    ];
 
-    const targetX = [0, stageWidth / 2, stageWidth];
-    const targetY = [0, stageHeight / 2, stageHeight];
+    const targetX = [
+      { value: 0, kind: 'edge' as const },
+      { value: stageWidth / 2, kind: 'center' as const },
+      { value: stageWidth, kind: 'edge' as const }
+    ];
+    const targetY = [
+      { value: 0, kind: 'edge' as const },
+      { value: stageHeight / 2, kind: 'center' as const },
+      { value: stageHeight, kind: 'edge' as const }
+    ];
     for (const item of items) {
       if (item.id === movingId) {
         continue;
       }
       const bounds = getRotatedBounds(item.x, item.y, item.width, item.height, item.rotation);
-      targetX.push(bounds.minX, (bounds.minX + bounds.maxX) / 2, bounds.maxX);
-      targetY.push(bounds.minY, (bounds.minY + bounds.maxY) / 2, bounds.maxY);
+      targetX.push(
+        { value: bounds.minX, kind: 'edge' },
+        { value: (bounds.minX + bounds.maxX) / 2, kind: 'center' },
+        { value: bounds.maxX, kind: 'edge' }
+      );
+      targetY.push(
+        { value: bounds.minY, kind: 'edge' },
+        { value: (bounds.minY + bounds.maxY) / 2, kind: 'center' },
+        { value: bounds.maxY, kind: 'edge' }
+      );
     }
 
-    const snapX = findClosestSnap(movingXAnchors, targetX);
-    const snapY = findClosestSnap(movingYAnchors, targetY);
+    const snapX = findClosestSnap(movingXAnchors, targetX, preferredVerticalGuide);
+    const snapY = findClosestSnap(movingYAnchors, targetY, preferredHorizontalGuide);
 
     return {
       x: x + snapX.delta,
@@ -610,24 +669,6 @@ const App = () => {
           >
             <Layer>
               <Rect width={stageWidth} height={stageHeight} fill="#fff" stroke="#ccc" strokeWidth={2} cornerRadius={0} />
-              {interactionMode === 'move' && snapEnabled && snapGuides.vertical !== null ? (
-                <Line
-                  points={[snapGuides.vertical, 0, snapGuides.vertical, stageHeight]}
-                  stroke="#a855f7"
-                  strokeWidth={2}
-                  dash={[6, 6]}
-                  listening={false}
-                />
-              ) : null}
-              {interactionMode === 'move' && snapEnabled && snapGuides.horizontal !== null ? (
-                <Line
-                  points={[0, snapGuides.horizontal, stageWidth, snapGuides.horizontal]}
-                  stroke="#a855f7"
-                  strokeWidth={2}
-                  dash={[6, 6]}
-                  listening={false}
-                />
-              ) : null}
               {items.map((item) => (
                 <KonvaImage
                   key={item.id}
@@ -658,7 +699,9 @@ const App = () => {
                       constrained.y,
                       item.width,
                       item.height,
-                      item.rotation
+                      item.rotation,
+                      snapGuides.vertical,
+                      snapGuides.horizontal
                     );
                     setSnapGuides((current) =>
                       current.vertical === snapped.guideX && current.horizontal === snapped.guideY
@@ -733,6 +776,24 @@ const App = () => {
                   }}
                 />
               ))}
+              {interactionMode === 'move' && snapEnabled && snapGuides.vertical !== null ? (
+                <Line
+                  points={[snapGuides.vertical, 0, snapGuides.vertical, stageHeight]}
+                  stroke="#a855f7"
+                  strokeWidth={2}
+                  dash={[6, 6]}
+                  listening={false}
+                />
+              ) : null}
+              {interactionMode === 'move' && snapEnabled && snapGuides.horizontal !== null ? (
+                <Line
+                  points={[0, snapGuides.horizontal, stageWidth, snapGuides.horizontal]}
+                  stroke="#a855f7"
+                  strokeWidth={2}
+                  dash={[6, 6]}
+                  listening={false}
+                />
+              ) : null}
               <Transformer
                 ref={transformerRef}
                 listening={interactionMode === 'transform'}
@@ -740,7 +801,7 @@ const App = () => {
                 anchorSize={14}
                 rotateAnchorOffset={rotateAnchorOffset}
                 borderStroke={interactionMode === 'move' ? '#16a34a' : '#2563eb'}
-                borderStrokeWidth={2}
+                borderStrokeWidth={interactionMode === 'move' ? 3 : 2}
                 borderDash={interactionMode === 'move' ? [6, 4] : []}
                 keepRatio={false}
                 enabledAnchors={

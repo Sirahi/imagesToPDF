@@ -35,9 +35,13 @@ The format is based on Keep a Changelog.
 - Added center snapping guides (purple dashed lines) for canvas horizontal/vertical center alignment.
 - Added smart snapping to other images (edge and center alignment), similar to Canva-style guides.
 - Added a dedicated `Snap` toggle switch to enable/disable snapping and guide lines during move mode.
+- Improved guide rendering so snapping lines draw above images for better visibility while dragging.
+- Increased move-mode selection outline thickness for clearer active-image feedback.
 
 ### Fixed
 - Fixed phone-photo orientation mismatch in exported PDFs by normalizing imported image pixels before rendering/export.
+- Fixed smart-snap guide jitter when two possible alignments compete during drag.
+- Updated snap priority to prefer center-to-center alignment before edge matches.
 
 ### Security
 - Restricted uploads to raster image formats only (`JPEG`, `PNG`, `WebP`) to reduce SVG/scriptable file attack surface.
