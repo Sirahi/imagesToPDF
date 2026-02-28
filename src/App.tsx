@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Layer, Rect, Stage, Image as KonvaImage, Transformer } from 'react-konva';
 import { PDFDocument, degrees } from 'pdf-lib';
 import type Konva from 'konva';
@@ -21,8 +21,10 @@ const A4_WIDTH_PT = 595.28;
 const A4_HEIGHT_PT = 841.89;
 const MAX_FILES_PER_IMPORT = 12;
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
+const MIN_IMAGE_SIZE = 24;
 const createId = () =>
   globalThis.crypto?.randomUUID?.() ?? `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
 const readFileAsDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
@@ -49,16 +51,57 @@ const App = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+  const [maxStageHeight, setMaxStageHeight] = useState(0);
   const { debugEnabled, showDebug, setShowDebug, debugEntries, appendDebug, clearDebug } = useDebugLogger();
 
+  useEffect(() => {
+    const element = stageContainerRef.current;
+    if (!element) {
+      return;
+    }
+
+    const updateLayout = () => {
+      setContainerWidth(element.clientWidth);
+
+      const rect = element.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const styles = window.getComputedStyle(element);
+      const paddingTop = Number.parseFloat(styles.paddingTop) || 0;
+      const paddingBottom = Number.parseFloat(styles.paddingBottom) || 0;
+      const bottomSafeSpace = 8;
+      const availableHeight = viewportHeight - rect.top - paddingTop - paddingBottom - bottomSafeSpace;
+      setMaxStageHeight(Math.max(120, availableHeight));
+    };
+
+    updateLayout();
+    const observer = new ResizeObserver(updateLayout);
+    observer.observe(element);
+    window.addEventListener('resize', updateLayout);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateLayout);
+    };
+  }, []);
+
   const stageWidth = useMemo(() => {
-    const viewportWidth = stageContainerRef.current?.clientWidth ?? 360;
-    return Math.min(viewportWidth, 640);
-  }, [stageContainerRef.current?.clientWidth]);
+    const fallbackWidth = typeof window === 'undefined' ? 320 : window.innerWidth - 32;
+    const availableWidth = containerWidth || fallbackWidth;
+    const widthFromHeight = (maxStageHeight || 360) * A4_RATIO;
+    return clamp(Math.min(availableWidth, widthFromHeight), 220, 640);
+  }, [containerWidth, maxStageHeight]);
 
   const stageHeight = stageWidth / A4_RATIO;
-
-  const selectedItem = items.find((item) => item.id === selectedId) ?? null;
+  const constrainToStage = (x: number, y: number, width: number, height: number) => {
+    const nextWidth = clamp(width, MIN_IMAGE_SIZE, stageWidth);
+    const nextHeight = clamp(height, MIN_IMAGE_SIZE, stageHeight);
+    return {
+      x: clamp(x, 0, stageWidth - nextWidth),
+      y: clamp(y, 0, stageHeight - nextHeight),
+      width: nextWidth,
+      height: nextHeight
+    };
+  };
 
   const bindTransformer = () => {
     const transformer = transformerRef.current;
@@ -112,14 +155,20 @@ const App = () => {
         const htmlImage = await loadImage(dataUrl);
         const baseWidth = Math.min(stageWidth * 0.35, htmlImage.width);
         const baseHeight = (baseWidth / htmlImage.width) * htmlImage.height;
+        const placement = constrainToStage(
+          stageWidth / 2 - baseWidth / 2,
+          stageHeight / 2 - baseHeight / 2,
+          baseWidth,
+          baseHeight
+        );
         incoming.push({
           id: createId(),
           dataUrl,
           htmlImage,
-          x: stageWidth / 2 - baseWidth / 2,
-          y: stageHeight / 2 - baseHeight / 2,
-          width: baseWidth,
-          height: baseHeight,
+          x: placement.x,
+          y: placement.y,
+          width: placement.width,
+          height: placement.height,
           rotation: 0
         });
       } catch (error) {
@@ -213,8 +262,8 @@ const App = () => {
           Add image
           <input type="file" accept="image/*" multiple onChange={onFilesAdded} />
         </label>
-        <button type="button" onClick={deleteSelected} disabled={!selectedId}>Delete selected</button>
-        <button type="button" onClick={exportPdf} disabled={isExporting || !items.length}>
+        <button type="button" className="danger" onClick={deleteSelected} disabled={!selectedId}>Delete selected</button>
+        <button type="button" className="success" onClick={exportPdf} disabled={isExporting || !items.length}>
           {isExporting ? 'Exporting…' : 'Export A4 PDF'}
         </button>
       </div>
@@ -259,10 +308,15 @@ const App = () => {
                   height={item.height}
                   rotation={item.rotation}
                   draggable
+                  dragBoundFunc={(position) => {
+                    const constrained = constrainToStage(position.x, position.y, item.width, item.height);
+                    return { x: constrained.x, y: constrained.y };
+                  }}
                   onTap={() => setSelectedId(item.id)}
                   onClick={() => setSelectedId(item.id)}
                   onDragEnd={(event) => {
-                    updateItem(item.id, { x: event.target.x(), y: event.target.y() });
+                    const constrained = constrainToStage(event.target.x(), event.target.y(), item.width, item.height);
+                    updateItem(item.id, { x: constrained.x, y: constrained.y });
                   }}
                   onTransformEnd={(event) => {
                     const node = event.target;
@@ -270,11 +324,17 @@ const App = () => {
                     const scaleY = node.scaleY();
                     node.scaleX(1);
                     node.scaleY(1);
+                    const constrained = constrainToStage(
+                      node.x(),
+                      node.y(),
+                      node.width() * scaleX,
+                      node.height() * scaleY
+                    );
                     updateItem(item.id, {
-                      x: node.x(),
-                      y: node.y(),
-                      width: Math.max(24, node.width() * scaleX),
-                      height: Math.max(24, node.height() * scaleY),
+                      x: constrained.x,
+                      y: constrained.y,
+                      width: constrained.width,
+                      height: constrained.height,
                       rotation: node.rotation()
                     });
                   }}
@@ -295,32 +355,21 @@ const App = () => {
                   'top-center',
                   'bottom-center'
                 ]}
+                boundBoxFunc={(oldBox, newBox) => {
+                  const constrained = constrainToStage(newBox.x, newBox.y, newBox.width, newBox.height);
+                  return {
+                    ...newBox,
+                    x: constrained.x,
+                    y: constrained.y,
+                    width: constrained.width,
+                    height: constrained.height
+                  };
+                }}
               />
             </Layer>
           </Stage>
         </div>
 
-        <aside className="side-panel">
-          <h2>Selected image</h2>
-          {selectedItem ? (
-            <>
-              <p>Use handles to resize and rotate. Fine tune rotation below:</p>
-              <div className="rotation-controls">
-                <button type="button" onClick={() => updateItem(selectedItem.id, { rotation: selectedItem.rotation - 1 })}>-1°</button>
-                <input
-                  type="range"
-                  min={-180}
-                  max={180}
-                  value={Math.round(selectedItem.rotation)}
-                  onChange={(event) => updateItem(selectedItem.id, { rotation: Number(event.target.value) })}
-                />
-                <button type="button" onClick={() => updateItem(selectedItem.id, { rotation: selectedItem.rotation + 1 })}>+1°</button>
-              </div>
-            </>
-          ) : (
-            <p>Tap an image to select it.</p>
-          )}
-        </aside>
       </div>
     </div>
   );
