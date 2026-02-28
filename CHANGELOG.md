@@ -30,9 +30,17 @@ The format is based on Keep a Changelog.
 - Increased transform scale-handle size for easier touch interaction.
 - Updated mode naming from `Scale/Rotate` label to `Stretch` for clearer non-technical wording.
 - Kept scale and rotation sliders visible whenever an image is selected.
+- Changed A4 canvas corners from rounded to square.
+- Added edge snapping while moving images near canvas borders.
+- Added center snapping guides (purple dashed lines) for canvas horizontal/vertical center alignment.
 
 ### Fixed
 - Fixed phone-photo orientation mismatch in exported PDFs by normalizing imported image pixels before rendering/export.
+
+### Security
+- Restricted uploads to raster image formats only (`JPEG`, `PNG`, `WebP`) to reduce SVG/scriptable file attack surface.
+- Added decoded-image pixel limit validation to block extremely large images that can cause memory/availability issues.
+- Added Cloudflare Pages security headers via `public/_headers` (CSP, nosniff, frame-ancestors, permissions policy).
 
 ## [1.0.0] - 2026-02-28
 

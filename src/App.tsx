@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Layer, Rect, Stage, Image as KonvaImage, Transformer } from 'react-konva';
+import { Layer, Line, Rect, Stage, Image as KonvaImage, Transformer } from 'react-konva';
 import { PDFDocument, degrees } from 'pdf-lib';
 import type Konva from 'konva';
 import { useDebugLogger } from './useDebugLogger';
@@ -26,7 +26,10 @@ const A4_WIDTH_PT = 595.28;
 const A4_HEIGHT_PT = 841.89;
 const MAX_FILES_PER_IMPORT = 12;
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
+const MAX_DECODED_PIXELS = 40_000_000;
+const SNAP_DISTANCE_PX = 10;
 const DEFAULT_SCALE_PERCENT = 50;
+const ALLOWED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const createId = () =>
   globalThis.crypto?.randomUUID?.() ?? `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
@@ -48,6 +51,31 @@ const getImageCenter = (x: number, y: number, width: number, height: number, rot
     x: x + (cos * width) / 2 - (sin * height) / 2,
     y: y + (sin * width) / 2 + (cos * height) / 2
   };
+};
+const getRotatedBounds = (x: number, y: number, width: number, height: number, rotation: number) => {
+  const angle = (rotation * Math.PI) / 180;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+
+  const corners = [
+    { x, y },
+    { x: x + width * cos, y: y + width * sin },
+    { x: x - height * sin, y: y + height * cos },
+    { x: x + width * cos - height * sin, y: y + width * sin + height * cos }
+  ];
+
+  let minX = corners[0].x;
+  let maxX = corners[0].x;
+  let minY = corners[0].y;
+  let maxY = corners[0].y;
+  for (const corner of corners) {
+    minX = Math.min(minX, corner.x);
+    maxX = Math.max(maxX, corner.x);
+    minY = Math.min(minY, corner.y);
+    maxY = Math.max(maxY, corner.y);
+  }
+
+  return { minX, maxX, minY, maxY };
 };
 
 const readFileAsDataUrl = (file: File) =>
@@ -76,6 +104,10 @@ const normalizeImageFile = async (file: File) => {
   if (typeof createImageBitmap === 'function') {
     try {
       const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      if (bitmap.width * bitmap.height > MAX_DECODED_PIXELS) {
+        bitmap.close();
+        throw new Error(`Image is too large in dimensions (max ${MAX_DECODED_PIXELS.toLocaleString()} pixels).`);
+      }
       canvas.width = bitmap.width;
       canvas.height = bitmap.height;
       context.drawImage(bitmap, 0, 0);
@@ -93,6 +125,9 @@ const normalizeImageFile = async (file: File) => {
   const sourceImage = await loadImage(sourceDataUrl);
   const width = sourceImage.naturalWidth || sourceImage.width;
   const height = sourceImage.naturalHeight || sourceImage.height;
+  if (width * height > MAX_DECODED_PIXELS) {
+    throw new Error(`Image is too large in dimensions (max ${MAX_DECODED_PIXELS.toLocaleString()} pixels).`);
+  }
   canvas.width = width;
   canvas.height = height;
   context.drawImage(sourceImage, 0, 0, width, height);
@@ -114,6 +149,7 @@ const App = () => {
   const [importError, setImportError] = useState<string | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const [maxStageHeight, setMaxStageHeight] = useState(0);
+  const [snapGuides, setSnapGuides] = useState({ centerX: false, centerY: false });
   const { debugEnabled, showDebug, setShowDebug, debugEntries, appendDebug, clearDebug } = useDebugLogger();
   const selectedItem = items.find((item) => item.id === selectedId) ?? null;
 
@@ -164,6 +200,44 @@ const App = () => {
       y: y + (clampedCenterY - center.y)
     };
   };
+  const snapPositionToCanvasEdgesAndCenter = (
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    rotation: number
+  ) => {
+    const bounds = getRotatedBounds(x, y, width, height, rotation);
+    const leftGap = Math.abs(bounds.minX);
+    const rightGap = Math.abs(stageWidth - bounds.maxX);
+    const topGap = Math.abs(bounds.minY);
+    const bottomGap = Math.abs(stageHeight - bounds.maxY);
+
+    let snappedX = x;
+    let snappedY = y;
+
+    if (leftGap <= SNAP_DISTANCE_PX || rightGap <= SNAP_DISTANCE_PX) {
+      snappedX += leftGap <= rightGap ? -bounds.minX : stageWidth - bounds.maxX;
+    }
+    if (topGap <= SNAP_DISTANCE_PX || bottomGap <= SNAP_DISTANCE_PX) {
+      snappedY += topGap <= bottomGap ? -bounds.minY : stageHeight - bounds.maxY;
+    }
+
+    const center = getImageCenter(snappedX, snappedY, width, height, rotation);
+    const stageCenterX = stageWidth / 2;
+    const stageCenterY = stageHeight / 2;
+    const snapToCenterX = Math.abs(center.x - stageCenterX) <= SNAP_DISTANCE_PX;
+    const snapToCenterY = Math.abs(center.y - stageCenterY) <= SNAP_DISTANCE_PX;
+
+    if (snapToCenterX) {
+      snappedX += stageCenterX - center.x;
+    }
+    if (snapToCenterY) {
+      snappedY += stageCenterY - center.y;
+    }
+
+    return { x: snappedX, y: snappedY, snapToCenterX, snapToCenterY };
+  };
 
   const bindTransformer = () => {
     const transformer = transformerRef.current;
@@ -200,9 +274,11 @@ const App = () => {
     const incoming: PlacedImage[] = [];
     const failedNames: string[] = [];
     for (const file of filesToProcess) {
-      if (!file.type.startsWith('image/')) {
+      if (!ALLOWED_IMAGE_MIME_TYPES.has(file.type)) {
         failedNames.push(file.name);
-        appendDebug(`Failed file: ${file.name} -> unsupported file type (${file.type || 'unknown'})`);
+        appendDebug(
+          `Failed file: ${file.name} -> unsupported file type (${file.type || 'unknown'}). Allowed: JPEG, PNG, WebP.`
+        );
         continue;
       }
 
@@ -409,7 +485,7 @@ const App = () => {
       <div className="toolbar">
         <label className="button primary">
           Add image
-          <input type="file" accept="image/*" multiple onChange={onFilesAdded} />
+          <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={onFilesAdded} />
         </label>
         <button type="button" className="danger" onClick={deleteSelected} disabled={!selectedId}>Delete selected</button>
         <button type="button" className="success" onClick={exportPdf} disabled={isExporting || !items.length}>
@@ -493,7 +569,25 @@ const App = () => {
             }}
           >
             <Layer>
-              <Rect width={stageWidth} height={stageHeight} fill="#fff" stroke="#ccc" strokeWidth={2} cornerRadius={8} />
+              <Rect width={stageWidth} height={stageHeight} fill="#fff" stroke="#ccc" strokeWidth={2} cornerRadius={0} />
+              {interactionMode === 'move' && snapGuides.centerX ? (
+                <Line
+                  points={[stageWidth / 2, 0, stageWidth / 2, stageHeight]}
+                  stroke="#a855f7"
+                  strokeWidth={2}
+                  dash={[6, 6]}
+                  listening={false}
+                />
+              ) : null}
+              {interactionMode === 'move' && snapGuides.centerY ? (
+                <Line
+                  points={[0, stageHeight / 2, stageWidth, stageHeight / 2]}
+                  stroke="#a855f7"
+                  strokeWidth={2}
+                  dash={[6, 6]}
+                  listening={false}
+                />
+              ) : null}
               {items.map((item) => (
                 <KonvaImage
                   key={item.id}
@@ -508,9 +602,28 @@ const App = () => {
                   rotation={item.rotation}
                   draggable={interactionMode === 'move' && selectedId === item.id}
                   dragBoundFunc={(position) => {
-                    return constrainPositionByCenter(
+                    const constrained = constrainPositionByCenter(
                       position.x,
                       position.y,
+                      item.width,
+                      item.height,
+                      item.rotation
+                    );
+                    const snapped = snapPositionToCanvasEdgesAndCenter(
+                      constrained.x,
+                      constrained.y,
+                      item.width,
+                      item.height,
+                      item.rotation
+                    );
+                    setSnapGuides((current) =>
+                      current.centerX === snapped.snapToCenterX && current.centerY === snapped.snapToCenterY
+                        ? current
+                        : { centerX: snapped.snapToCenterX, centerY: snapped.snapToCenterY }
+                    );
+                    return constrainPositionByCenter(
+                      snapped.x,
+                      snapped.y,
                       item.width,
                       item.height,
                       item.rotation
@@ -534,6 +647,7 @@ const App = () => {
                     transformer.getLayer()?.batchDraw();
                   }}
                   onDragEnd={(event) => {
+                    setSnapGuides({ centerX: false, centerY: false });
                     const constrained = constrainPositionByCenter(
                       event.target.x(),
                       event.target.y(),
