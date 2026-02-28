@@ -616,7 +616,9 @@ const App = () => {
         worker.terminate();
       });
 
-      const blob = new Blob([pdfBytes.buffer], { type: 'application/pdf' });
+      const safeBytes = new Uint8Array(pdfBytes.byteLength);
+      safeBytes.set(pdfBytes);
+      const blob = new Blob([safeBytes.buffer], { type: 'application/pdf' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
       link.download = `a4-composition-${Date.now()}.pdf`;
