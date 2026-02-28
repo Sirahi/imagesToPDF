@@ -22,6 +22,7 @@ The format is based on Keep a Changelog.
 - Refined mode visuals:
   - move mode outline uses green dashed border
   - switch colors now indicate active mode (green for Move, blue for Scale/Rotate)
+- Increased transform scale-handle size for easier touch interaction.
 
 ## [1.0.0] - 2026-02-28
 

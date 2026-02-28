@@ -500,6 +500,7 @@ const App = () => {
                 ref={transformerRef}
                 listening={interactionMode === 'transform'}
                 rotateEnabled={false}
+                anchorSize={14}
                 rotateAnchorOffset={rotateAnchorOffset}
                 borderStroke={interactionMode === 'move' ? '#16a34a' : '#2563eb'}
                 borderStrokeWidth={2}
