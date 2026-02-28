@@ -12,11 +12,13 @@ The format is based on Keep a Changelog.
   - `Scale/Rotate` mode for resize plus slider-based rotation
 - Added a mode toggle switch UI with clear mode labeling.
 - Added a rotation slider (`0-360`) with per-image cached rotation values.
-- Added a reset (`↺`) control to restore selected image to:
+- Added a reset control to restore selected image to:
   - scale 100%
   - rotation 0
   - original (unstretched) dimensions
   - centered position
+- Added an in-canvas trash-bin icon at the selected image top-right for quick single-image delete.
+- Added a custom in-app `Delete All` confirmation modal (`Yes`/`No`) to reduce accidental clears.
 
 ### Changed
 - Updated selection boundary behavior to center-point constraints (image center cannot leave canvas).
@@ -37,11 +39,16 @@ The format is based on Keep a Changelog.
 - Added a dedicated `Snap` toggle switch to enable/disable snapping and guide lines during move mode.
 - Improved guide rendering so snapping lines draw above images for better visibility while dragging.
 - Increased move-mode selection outline thickness for clearer active-image feedback.
+- Updated drag interaction so images select and move in a single gesture.
+- Updated toolbar controls to disable appropriately during import/export and destructive flows.
 
 ### Fixed
 - Fixed phone-photo orientation mismatch in exported PDFs by normalizing imported image pixels before rendering/export.
 - Fixed smart-snap guide jitter when two possible alignments compete during drag.
 - Updated snap priority to prefer center-to-center alignment before edge matches.
+- Fixed CSP-related export failures by removing `fetch(data:...)` from PDF image byte loading.
+- Fixed several mobile UX/state issues around export and add/delete control behavior.
+- Moved PDF generation to a Web Worker so export no longer blocks UI responsiveness.
 
 ### Security
 - Restricted uploads to raster image formats only (`JPEG`, `PNG`, `WebP`) to reduce SVG/scriptable file attack surface.

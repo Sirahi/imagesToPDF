@@ -249,14 +249,73 @@ button:disabled {
   align-items: start;
 }
 
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  padding: 1rem;
+}
+
+.confirm-card {
+  width: min(92vw, 340px);
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 0.75rem;
+  padding: 1rem;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.15);
+}
+
+.confirm-card p {
+  margin: 0 0 0.85rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
 .stage-wrap {
   width: min(100%, 760px);
   background: #d1d5db;
   border-radius: 0.75rem;
   padding: 0.75rem;
+  position: relative;
   display: flex;
   justify-content: center;
   overflow: hidden;
+}
+
+.canvas-busy-overlay {
+  position: absolute;
+  inset: 0.75rem;
+  background: rgba(255, 255, 255, 0.35);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.canvas-spinner {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 4px solid rgba(37, 99, 235, 0.2);
+  border-top-color: #2563eb;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 850px) {
@@ -266,5 +325,9 @@ button:disabled {
 
   .stage-wrap {
     padding: 0.5rem;
+  }
+
+  .canvas-busy-overlay {
+    inset: 0.5rem;
   }
 }
