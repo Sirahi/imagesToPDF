@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Layer, Line, Rect, Stage, Image as KonvaImage, Transformer } from 'react-konva';
-import { PDFDocument, degrees } from 'pdf-lib';
+import { Group, Layer, Line, Rect, Stage, Image as KonvaImage, Transformer } from 'react-konva';
 import type Konva from 'konva';
 import { useDebugLogger } from './useDebugLogger';
 import DebugPanel from './DebugPanel';
@@ -26,12 +25,11 @@ type SnapGuides = {
 };
 
 const A4_RATIO = 210 / 297;
-const A4_WIDTH_PT = 595.28;
-const A4_HEIGHT_PT = 841.89;
 const MAX_FILES_PER_IMPORT = 12;
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 const MAX_DECODED_PIXELS = 40_000_000;
 const SNAP_DISTANCE_PX = 10;
+const DELETE_ICON_SIZE = 24;
 const DEFAULT_SCALE_PERCENT = 50;
 const ALLOWED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const createId = () =>
@@ -54,6 +52,13 @@ const getImageCenter = (x: number, y: number, width: number, height: number, rot
   return {
     x: x + (cos * width) / 2 - (sin * height) / 2,
     y: y + (sin * width) / 2 + (cos * height) / 2
+  };
+};
+const getImageTopRight = (x: number, y: number, width: number, rotation: number) => {
+  const angle = (rotation * Math.PI) / 180;
+  return {
+    x: x + Math.cos(angle) * width,
+    y: y + Math.sin(angle) * width
   };
 };
 const getRotatedBounds = (x: number, y: number, width: number, height: number, rotation: number) => {
@@ -150,8 +155,12 @@ const App = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [interactionMode, setInteractionMode] = useState<'move' | 'transform'>('move');
   const [snapEnabled, setSnapEnabled] = useState(true);
+  const [isImporting, setIsImporting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const [maxStageHeight, setMaxStageHeight] = useState(0);
   const [snapGuides, setSnapGuides] = useState<SnapGuides>({ vertical: null, horizontal: null });
@@ -195,6 +204,22 @@ const App = () => {
   }, [containerWidth, maxStageHeight]);
 
   const stageHeight = stageWidth / A4_RATIO;
+  const selectedDeleteIconPosition = useMemo(() => {
+    if (!selectedItem || draggingId === selectedItem.id) {
+      return null;
+    }
+    const topRight = getImageTopRight(
+      selectedItem.x,
+      selectedItem.y,
+      selectedItem.width,
+      selectedItem.rotation
+    );
+    const padding = 8;
+    return {
+      x: clamp(topRight.x + padding, DELETE_ICON_SIZE / 2, stageWidth - DELETE_ICON_SIZE / 2),
+      y: clamp(topRight.y - padding, DELETE_ICON_SIZE / 2, stageHeight - DELETE_ICON_SIZE / 2)
+    };
+  }, [selectedItem, draggingId, stageWidth, stageHeight]);
   const rotateAnchorOffset = -Math.abs(selectedItem?.height ?? 0) / 2;
   const constrainPositionByCenter = (x: number, y: number, width: number, height: number, rotation: number) => {
     const center = getImageCenter(x, y, width, height, rotation);
@@ -324,7 +349,20 @@ const App = () => {
       setSnapGuides({ vertical: null, horizontal: null });
     }
   }, [snapEnabled]);
-
+  useEffect(() => {
+    if (!importError) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => setImportError(null), 10000);
+    return () => window.clearTimeout(timeoutId);
+  }, [importError]);
+  useEffect(() => {
+    if (!exportError) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => setExportError(null), 10000);
+    return () => window.clearTimeout(timeoutId);
+  }, [exportError]);
   const bindTransformer = () => {
     const transformer = transformerRef.current;
     if (!transformer) {
@@ -342,81 +380,86 @@ const App = () => {
   };
 
   const onFilesAdded = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    setIsImporting(true);
     const fileList = event.target.files;
     if (!fileList?.length) {
+      setIsImporting(false);
       return;
     }
 
     setImportError(null);
-    const selectedFiles = Array.from(fileList);
-    const filesToProcess = selectedFiles.slice(0, MAX_FILES_PER_IMPORT);
-    if (selectedFiles.length > MAX_FILES_PER_IMPORT) {
-      setImportError(
-        `You selected ${selectedFiles.length} files. Only the first ${MAX_FILES_PER_IMPORT} were processed.`
-      );
-      appendDebug(`File count limited to ${MAX_FILES_PER_IMPORT}.`);
-    }
-
-    const incoming: PlacedImage[] = [];
-    const failedNames: string[] = [];
-    for (const file of filesToProcess) {
-      if (!ALLOWED_IMAGE_MIME_TYPES.has(file.type)) {
-        failedNames.push(file.name);
-        appendDebug(
-          `Failed file: ${file.name} -> unsupported file type (${file.type || 'unknown'}). Allowed: JPEG, PNG, WebP.`
+    try {
+      const selectedFiles = Array.from(fileList);
+      const filesToProcess = selectedFiles.slice(0, MAX_FILES_PER_IMPORT);
+      if (selectedFiles.length > MAX_FILES_PER_IMPORT) {
+        setImportError(
+          `You selected ${selectedFiles.length} files. Only the first ${MAX_FILES_PER_IMPORT} were processed.`
         );
-        continue;
+        appendDebug(`File count limited to ${MAX_FILES_PER_IMPORT}.`);
       }
 
-      if (file.size > MAX_FILE_SIZE_BYTES) {
-        failedNames.push(file.name);
-        appendDebug(`Failed file: ${file.name} -> file too large (${file.size} bytes)`);
-        continue;
+      const incoming: PlacedImage[] = [];
+      const failedNames: string[] = [];
+      for (const file of filesToProcess) {
+        if (!ALLOWED_IMAGE_MIME_TYPES.has(file.type)) {
+          failedNames.push(file.name);
+          appendDebug(
+            `Failed file: ${file.name} -> unsupported file type (${file.type || 'unknown'}). Allowed: JPEG, PNG, WebP.`
+          );
+          continue;
+        }
+
+        if (file.size > MAX_FILE_SIZE_BYTES) {
+          failedNames.push(file.name);
+          appendDebug(`Failed file: ${file.name} -> file too large (${file.size} bytes)`);
+          continue;
+        }
+
+        try {
+          const { dataUrl, htmlImage } = await normalizeImageFile(file);
+          const baseWidth = Math.min(stageWidth * 0.35, htmlImage.width);
+          const baseHeight = (baseWidth / htmlImage.width) * htmlImage.height;
+          const initialFactor = scaleFactorFromPercent(DEFAULT_SCALE_PERCENT);
+          const initialWidth = baseWidth * initialFactor;
+          const initialHeight = baseHeight * initialFactor;
+          incoming.push({
+            id: createId(),
+            dataUrl,
+            htmlImage,
+            originalWidth: baseWidth,
+            originalHeight: baseHeight,
+            baseWidth,
+            baseHeight,
+            scalePercent: DEFAULT_SCALE_PERCENT,
+            x: stageWidth / 2 - initialWidth / 2,
+            y: stageHeight / 2 - initialHeight / 2,
+            width: initialWidth,
+            height: initialHeight,
+            rotation: 0
+          });
+        } catch (error) {
+          failedNames.push(file.name);
+          const message = error instanceof Error ? error.message : String(error);
+          appendDebug(`Failed file: ${file.name} -> ${message}`);
+        }
       }
 
-      try {
-        const { dataUrl, htmlImage } = await normalizeImageFile(file);
-        const baseWidth = Math.min(stageWidth * 0.35, htmlImage.width);
-        const baseHeight = (baseWidth / htmlImage.width) * htmlImage.height;
-        const initialFactor = scaleFactorFromPercent(DEFAULT_SCALE_PERCENT);
-        const initialWidth = baseWidth * initialFactor;
-        const initialHeight = baseHeight * initialFactor;
-        incoming.push({
-          id: createId(),
-          dataUrl,
-          htmlImage,
-          originalWidth: baseWidth,
-          originalHeight: baseHeight,
-          baseWidth,
-          baseHeight,
-          scalePercent: DEFAULT_SCALE_PERCENT,
-          x: stageWidth / 2 - initialWidth / 2,
-          y: stageHeight / 2 - initialHeight / 2,
-          width: initialWidth,
-          height: initialHeight,
-          rotation: 0
-        });
-      } catch (error) {
-        failedNames.push(file.name);
-        const message = error instanceof Error ? error.message : String(error);
-        appendDebug(`Failed file: ${file.name} -> ${message}`);
+      if (incoming.length) {
+        setItems((current) => [...current, ...incoming]);
+        setSelectedId(incoming[incoming.length - 1]?.id ?? null);
       }
-    }
 
-    if (incoming.length) {
-      setItems((current) => [...current, ...incoming]);
-      setSelectedId(incoming[incoming.length - 1]?.id ?? null);
+      if (failedNames.length) {
+        setImportError(
+          failedNames.length === 1
+            ? `Could not load "${failedNames[0]}".`
+            : `Could not load ${failedNames.length} images.`
+        );
+      }
+    } finally {
+      event.target.value = '';
+      setIsImporting(false);
     }
-
-    if (failedNames.length) {
-      setImportError(
-        failedNames.length === 1
-          ? `Could not load "${failedNames[0]}".`
-          : `Could not load ${failedNames.length} images.`
-      );
-    }
-
-    event.target.value = '';
   };
 
   const updateItem = (id: string, patch: Partial<PlacedImage>) => {
@@ -523,45 +566,82 @@ const App = () => {
     setItems((current) => current.filter((item) => item.id !== selectedId));
     setSelectedId(null);
   };
-
-  const exportPdf = async () => {
+  const deleteAll = () => {
     if (!items.length) {
       return;
     }
-    setIsExporting(true);
+    setItems([]);
+    setSelectedId(null);
+    setDraggingId(null);
+    setSnapGuides({ vertical: null, horizontal: null });
+    setShowDeleteAllConfirm(false);
+  };
+
+  const runExportPdf = async () => {
+    if (!items.length) {
+      return;
+    }
     try {
-      const pdfDoc = await PDFDocument.create();
-      const page = pdfDoc.addPage([A4_WIDTH_PT, A4_HEIGHT_PT]);
-      const scaleX = A4_WIDTH_PT / stageWidth;
-      const scaleY = A4_HEIGHT_PT / stageHeight;
-
-      for (const item of items) {
-        const imageBytes = await fetch(item.dataUrl).then((response) => response.arrayBuffer());
-        const embeddedImage = await pdfDoc.embedPng(imageBytes);
-
-        const width = item.width * scaleX;
-        const height = item.height * scaleY;
-
-        page.drawImage(embeddedImage, {
-          x: item.x * scaleX,
-          y: A4_HEIGHT_PT - (item.y * scaleY) - height,
-          width,
-          height,
-          rotate: degrees(-item.rotation)
+      const worker = new Worker(new URL('./pdfExportWorker.ts', import.meta.url), { type: 'module' });
+      const pdfBytes = await new Promise<Uint8Array>((resolve, reject) => {
+        worker.onmessage = (
+          event: MessageEvent<{ type: 'success'; bytes: ArrayBuffer } | { type: 'error'; message: string }>
+        ) => {
+          const message = event.data;
+          if (message.type === 'success') {
+            resolve(new Uint8Array(message.bytes));
+            return;
+          }
+          reject(new Error(message.message));
+        };
+        worker.onerror = () => {
+          reject(new Error('PDF export worker failed'));
+        };
+        worker.postMessage({
+          type: 'export',
+          payload: {
+            stageWidth,
+            stageHeight,
+            items: items.map((item) => ({
+              dataUrl: item.dataUrl,
+              x: item.x,
+              y: item.y,
+              width: item.width,
+              height: item.height,
+              rotation: item.rotation
+            }))
+          }
         });
-      }
+      }).finally(() => {
+        worker.terminate();
+      });
 
-      const bytes = await pdfDoc.save();
-      const pdfBytes = Uint8Array.from(bytes);
       const blob = new Blob([pdfBytes], { type: 'application/pdf' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
       link.download = `a4-composition-${Date.now()}.pdf`;
       link.click();
       URL.revokeObjectURL(link.href);
+      setExportError(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendDebug(`Export failed: ${message}`);
+      setExportError('Export failed. Please try again.');
     } finally {
       setIsExporting(false);
     }
+  };
+  const exportPdf = () => {
+    if (!items.length || isExporting || isImporting) {
+      return;
+    }
+    setExportError(null);
+    setIsExporting(true);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        void runExportPdf();
+      });
+    });
   };
 
   bindTransformer();
@@ -570,11 +650,24 @@ const App = () => {
     <div className="app-shell">
       <div className="toolbar">
         <label className="button primary">
-          Add image
-          <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={onFilesAdded} />
+          Add Image
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            multiple
+            onChange={onFilesAdded}
+            disabled={isImporting || isExporting}
+          />
         </label>
-        <button type="button" className="danger" onClick={deleteSelected} disabled={!selectedId}>Delete selected</button>
-        <button type="button" className="success" onClick={exportPdf} disabled={isExporting || !items.length}>
+        <button
+          type="button"
+          className="danger"
+          onClick={() => setShowDeleteAllConfirm(true)}
+          disabled={!items.length || isExporting || isImporting}
+        >
+          Delete All
+        </button>
+        <button type="button" className="success" onClick={exportPdf} disabled={isExporting || isImporting || !items.length}>
           {isExporting ? 'Exporting…' : 'Export A4 PDF'}
         </button>
       </div>
@@ -609,7 +702,7 @@ const App = () => {
           type="button"
           className="undo-button"
           onClick={resetSelectedAdjustments}
-          disabled={!selectedItem}
+          disabled={!selectedItem || isImporting || isExporting}
           title="Reset selected image (scale 100%, rotation 0, undo stretch)"
           aria-label="Reset selected image"
         >
@@ -641,6 +734,7 @@ const App = () => {
           <span>{Math.round(normalizeRotation(selectedItem.rotation))}°</span>
         </div>
       ) : null}
+      {exportError ? <p className="import-error">{exportError}</p> : null}
 
       <DebugPanel
         debugEnabled={debugEnabled}
@@ -653,6 +747,11 @@ const App = () => {
 
       <div className="editor-panel">
         <div className="stage-wrap" ref={stageContainerRef}>
+          {isExporting || isImporting ? (
+            <div className="canvas-busy-overlay" aria-live="polite">
+              <div className="canvas-spinner" />
+            </div>
+          ) : null}
           <Stage
             width={stageWidth}
             height={stageHeight}
@@ -681,7 +780,7 @@ const App = () => {
                   width={item.width}
                   height={item.height}
                   rotation={item.rotation}
-                  draggable={interactionMode === 'move' && selectedId === item.id}
+                  draggable={interactionMode === 'move'}
                   dragBoundFunc={(position) => {
                     const constrained = constrainPositionByCenter(
                       position.x,
@@ -719,10 +818,17 @@ const App = () => {
                   onTap={() => setSelectedId(item.id)}
                   onClick={() => setSelectedId(item.id)}
                   onDragMove={(event) => {
-                    if (interactionMode !== 'move' || selectedId !== item.id) {
+                    if (interactionMode !== 'move') {
                       return;
                     }
                     updateItem(item.id, { x: event.target.x(), y: event.target.y() });
+                  }}
+                  onDragStart={() => {
+                    if (interactionMode !== 'move') {
+                      return;
+                    }
+                    setSelectedId(item.id);
+                    setDraggingId(item.id);
                   }}
                   onTransform={(event) => {
                     const node = event.target;
@@ -734,6 +840,7 @@ const App = () => {
                     transformer.getLayer()?.batchDraw();
                   }}
                   onDragEnd={(event) => {
+                    setDraggingId(null);
                     setSnapGuides({ vertical: null, horizontal: null });
                     const constrained = constrainPositionByCenter(
                       event.target.x(),
@@ -810,11 +917,60 @@ const App = () => {
                     : []
                 }
               />
+              {selectedItem && selectedDeleteIconPosition ? (
+                <Group
+                  x={selectedDeleteIconPosition.x - DELETE_ICON_SIZE / 2}
+                  y={selectedDeleteIconPosition.y - DELETE_ICON_SIZE / 2}
+                  onClick={(event) => {
+                    event.cancelBubble = true;
+                    deleteSelected();
+                  }}
+                  onTap={(event) => {
+                    event.cancelBubble = true;
+                    deleteSelected();
+                  }}
+                >
+                  <Rect
+                    width={DELETE_ICON_SIZE}
+                    height={DELETE_ICON_SIZE}
+                    cornerRadius={6}
+                    fill="#e5e7eb"
+                    stroke="#9ca3af"
+                    strokeWidth={1.5}
+                  />
+                  <Rect
+                    x={7}
+                    y={8}
+                    width={10}
+                    height={10}
+                    cornerRadius={2}
+                    fill="#f9fafb"
+                    stroke="#6b7280"
+                    strokeWidth={1.5}
+                  />
+                  <Line points={[6, 8, 18, 8]} stroke="#6b7280" strokeWidth={1.5} lineCap="round" />
+                  <Line points={[9.5, 5.8, 14.5, 5.8]} stroke="#6b7280" strokeWidth={1.5} lineCap="round" />
+                  <Line points={[10.2, 11, 10.2, 16]} stroke="#6b7280" strokeWidth={1.2} lineCap="round" />
+                  <Line points={[12, 11, 12, 16]} stroke="#6b7280" strokeWidth={1.2} lineCap="round" />
+                  <Line points={[13.8, 11, 13.8, 16]} stroke="#6b7280" strokeWidth={1.2} lineCap="round" />
+                </Group>
+              ) : null}
             </Layer>
           </Stage>
         </div>
 
       </div>
+      {showDeleteAllConfirm ? (
+        <div className="confirm-overlay" role="dialog" aria-modal="true" aria-label="Delete all confirmation">
+          <div className="confirm-card">
+            <p>Delete all images?</p>
+            <div className="confirm-actions">
+              <button type="button" className="danger" onClick={deleteAll}>Yes</button>
+              <button type="button" onClick={() => setShowDeleteAllConfirm(false)}>No</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };
