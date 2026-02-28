@@ -10,6 +10,7 @@
 
 body {
   margin: 0;
+  overflow-x: hidden;
 }
 
 .app-shell {
@@ -19,6 +20,7 @@ body {
 }
 
 h1 {
+  margin-top: 0;
   margin-bottom: 0.25rem;
 }
 
@@ -86,6 +88,16 @@ button {
   color: #fff;
 }
 
+.success {
+  background: #16a34a;
+  color: #fff;
+}
+
+.danger {
+  background: #dc2626;
+  color: #fff;
+}
+
 .button input {
   display: none;
 }
@@ -96,34 +108,27 @@ button:disabled {
 }
 
 .editor-panel {
-  display: grid;
-  grid-template-columns: minmax(280px, 1fr) 250px;
-  gap: 1rem;
+  display: flex;
+  justify-content: center;
   align-items: start;
 }
 
 .stage-wrap {
-  width: 100%;
+  width: min(100%, 760px);
   background: #d1d5db;
   border-radius: 0.75rem;
   padding: 0.75rem;
-}
-
-.side-panel {
-  background: white;
-  border-radius: 0.75rem;
-  padding: 1rem;
-}
-
-.rotation-controls {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 0.5rem;
-  align-items: center;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
 }
 
 @media (max-width: 850px) {
-  .editor-panel {
-    grid-template-columns: 1fr;
+  .app-shell {
+    padding: 0.75rem;
+  }
+
+  .stage-wrap {
+    padding: 0.5rem;
   }
 }
