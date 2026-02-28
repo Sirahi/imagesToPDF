@@ -1,0 +1,87 @@
+:root {
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #1f2937;
+  background: #f4f5f7;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.app-shell {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+h1 {
+  margin-bottom: 0.25rem;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.button,
+button {
+  background: #e5e7eb;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.9rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.button.primary {
+  background: #2563eb;
+  color: #fff;
+}
+
+.button input {
+  display: none;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.editor-panel {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) 250px;
+  gap: 1rem;
+  align-items: start;
+}
+
+.stage-wrap {
+  width: 100%;
+  background: #d1d5db;
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+}
+
+.side-panel {
+  background: white;
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+.rotation-controls {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+@media (max-width: 850px) {
+  .editor-panel {
+    grid-template-columns: 1fr;
+  }
+}
