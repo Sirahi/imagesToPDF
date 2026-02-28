@@ -66,6 +66,42 @@ const loadImage = (src: string) =>
     image.src = src;
   });
 
+const normalizeImageFile = async (file: File) => {
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('Unable to normalize image');
+  }
+
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      context.drawImage(bitmap, 0, 0);
+      bitmap.close();
+
+      const normalizedDataUrl = canvas.toDataURL('image/png');
+      const normalizedImage = await loadImage(normalizedDataUrl);
+      return { dataUrl: normalizedDataUrl, htmlImage: normalizedImage };
+    } catch {
+      // Fallback to Image decode path below.
+    }
+  }
+
+  const sourceDataUrl = await readFileAsDataUrl(file);
+  const sourceImage = await loadImage(sourceDataUrl);
+  const width = sourceImage.naturalWidth || sourceImage.width;
+  const height = sourceImage.naturalHeight || sourceImage.height;
+  canvas.width = width;
+  canvas.height = height;
+  context.drawImage(sourceImage, 0, 0, width, height);
+
+  const normalizedDataUrl = canvas.toDataURL('image/png');
+  const normalizedImage = await loadImage(normalizedDataUrl);
+  return { dataUrl: normalizedDataUrl, htmlImage: normalizedImage };
+};
+
 const App = () => {
   const stageContainerRef = useRef<HTMLDivElement | null>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
@@ -177,8 +213,7 @@ const App = () => {
       }
 
       try {
-        const dataUrl = await readFileAsDataUrl(file);
-        const htmlImage = await loadImage(dataUrl);
+        const { dataUrl, htmlImage } = await normalizeImageFile(file);
         const baseWidth = Math.min(stageWidth * 0.35, htmlImage.width);
         const baseHeight = (baseWidth / htmlImage.width) * htmlImage.height;
         const initialFactor = scaleFactorFromPercent(DEFAULT_SCALE_PERCENT);
@@ -340,9 +375,7 @@ const App = () => {
 
       for (const item of items) {
         const imageBytes = await fetch(item.dataUrl).then((response) => response.arrayBuffer());
-        const embeddedImage = item.dataUrl.includes('image/png')
-          ? await pdfDoc.embedPng(imageBytes)
-          : await pdfDoc.embedJpg(imageBytes);
+        const embeddedImage = await pdfDoc.embedPng(imageBytes);
 
         const width = item.width * scaleX;
         const height = item.height * scaleY;

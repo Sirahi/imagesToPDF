@@ -31,6 +31,9 @@ The format is based on Keep a Changelog.
 - Updated mode naming from `Scale/Rotate` label to `Stretch` for clearer non-technical wording.
 - Kept scale and rotation sliders visible whenever an image is selected.
 
+### Fixed
+- Fixed phone-photo orientation mismatch in exported PDFs by normalizing imported image pixels before rendering/export.
+
 ## [1.0.0] - 2026-02-28
 
 ### Added
