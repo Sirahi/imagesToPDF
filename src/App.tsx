@@ -139,7 +139,8 @@ const App = () => {
       }
 
       const bytes = await pdfDoc.save();
-      const blob = new Blob([bytes], { type: 'application/pdf' });
+      const pdfBytes = Uint8Array.from(bytes);
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
       link.download = `a4-composition-${Date.now()}.pdf`;
