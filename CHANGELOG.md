@@ -12,6 +12,11 @@ The format is based on Keep a Changelog.
   - `Scale/Rotate` mode for resize plus slider-based rotation
 - Added a mode toggle switch UI with clear mode labeling.
 - Added a rotation slider (`0-360`) with per-image cached rotation values.
+- Added a reset (`↺`) control to restore selected image to:
+  - scale 100%
+  - rotation 0
+  - original (unstretched) dimensions
+  - centered position
 
 ### Changed
 - Updated selection boundary behavior to center-point constraints (image center cannot leave canvas).
@@ -23,6 +28,8 @@ The format is based on Keep a Changelog.
   - move mode outline uses green dashed border
   - switch colors now indicate active mode (green for Move, blue for Scale/Rotate)
 - Increased transform scale-handle size for easier touch interaction.
+- Updated mode naming from `Scale/Rotate` label to `Stretch` for clearer non-technical wording.
+- Kept scale and rotation sliders visible whenever an image is selected.
 
 ## [1.0.0] - 2026-02-28
 

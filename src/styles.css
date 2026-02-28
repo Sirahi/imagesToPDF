@@ -33,7 +33,24 @@ h1 {
 
 .mode-row {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin: 0 0 0.6rem 0;
+}
+
+.undo-button {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  color: #374151;
+  font-size: 1.1rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
 }
 
 .mode-switch {
@@ -68,8 +85,8 @@ h1 {
   width: 46px;
   height: 26px;
   border-radius: 999px;
-  background: #34d399;
-  border: 1px solid #10b981;
+  background: #16a34a;
+  border: 1px solid #16a34a;
   position: relative;
   transition: background-color 0.15s ease;
   -webkit-tap-highlight-color: transparent;
@@ -90,7 +107,7 @@ h1 {
 
 .mode-switch input:checked + .mode-slider {
   background: #2563eb;
-  border-color: #1d4ed8;
+  border-color: #2563eb;
 }
 
 .mode-switch input:checked + .mode-slider::after {
@@ -98,7 +115,7 @@ h1 {
 }
 
 .mode-switch input:focus-visible + .mode-slider {
-  outline: 2px solid #93c5fd;
+  outline: 2px solid #2563eb;
   outline-offset: 2px;
 }
 

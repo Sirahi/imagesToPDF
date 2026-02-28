@@ -9,6 +9,8 @@ type PlacedImage = {
   id: string;
   dataUrl: string;
   htmlImage: HTMLImageElement;
+  originalWidth: number;
+  originalHeight: number;
   baseWidth: number;
   baseHeight: number;
   scalePercent: number;
@@ -186,6 +188,8 @@ const App = () => {
           id: createId(),
           dataUrl,
           htmlImage,
+          originalWidth: baseWidth,
+          originalHeight: baseHeight,
           baseWidth,
           baseHeight,
           scalePercent: DEFAULT_SCALE_PERCENT,
@@ -282,6 +286,38 @@ const App = () => {
       })
     );
   };
+  const resetSelectedAdjustments = () => {
+    if (!selectedId) {
+      return;
+    }
+
+    setItems((current) =>
+      current.map((item) => {
+        if (item.id !== selectedId) {
+          return item;
+        }
+
+        const nextWidth = item.originalWidth;
+        const nextHeight = item.originalHeight;
+        const nextRotation = 0;
+        const nextX = stageWidth / 2 - nextWidth / 2;
+        const nextY = stageHeight / 2 - nextHeight / 2;
+        const constrained = constrainPositionByCenter(nextX, nextY, nextWidth, nextHeight, nextRotation);
+
+        return {
+          ...item,
+          x: constrained.x,
+          y: constrained.y,
+          width: nextWidth,
+          height: nextHeight,
+          baseWidth: item.originalWidth,
+          baseHeight: item.originalHeight,
+          scalePercent: DEFAULT_SCALE_PERCENT,
+          rotation: nextRotation
+        };
+      })
+    );
+  };
 
   const deleteSelected = () => {
     if (!selectedId) {
@@ -356,14 +392,24 @@ const App = () => {
             type="checkbox"
             checked={interactionMode === 'transform'}
             onChange={toggleInteractionMode}
-            aria-label="Toggle between move mode and scale/rotate mode"
+            aria-label="Toggle between move mode and stretch mode"
           />
           <span className="mode-slider" aria-hidden="true" />
-          <span className="mode-label mode-label-transform">Scale/Rotate</span>
+          <span className="mode-label mode-label-transform">Stretch</span>
         </label>
+        <button
+          type="button"
+          className="undo-button"
+          onClick={resetSelectedAdjustments}
+          disabled={!selectedItem}
+          title="Reset selected image (scale 100%, rotation 0, undo stretch)"
+          aria-label="Reset selected image"
+        >
+          ↺
+        </button>
       </div>
 
-      {selectedItem && interactionMode === 'transform' ? (
+      {selectedItem ? (
         <div className="selection-controls">
           <label htmlFor="scale-slider">Scale</label>
           <input

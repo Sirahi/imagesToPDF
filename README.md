@@ -1,27 +1,29 @@
 # Images to A4 PDF Composer
 
-This project uses **React + Konva + pdf-lib** so it can run as:
-- a web app for fast iteration and iPhone Safari testing,
-- an Android APK and iOS app later via Capacitor wrapping.
+Create an A4 print-ready PDF by placing photos on a touch-friendly canvas.
 
-## Why this stack
-- Simple to extend and debug compared to native dual-platform code.
-- Touch-friendly drag/resize/rotate interactions with Konva.
-- Reliable A4 PDF export for print workflows.
+## How to use
+1. Tap `Add image` and pick one or more images.
+2. Tap an image to select it.
+3. Use the mode switch:
+   - `Move`: drag the selected image.
+   - `Stretch`: resize using side handles.
+4. Use sliders (visible when an image is selected):
+   - `Scale`: zoom image size.
+   - `Rotation`: rotate from `0` to `360`.
+5. Tap `Export A4 PDF` to download the final file.
 
-## Run locally
+## Notes
+- Image center is constrained to stay within the canvas so images are harder to lose off-screen.
+- `Delete selected` removes the currently selected image.
+
+## Local development
 ```bash
 npm install
 npm run dev
 ```
 
-## Build
+## Production build
 ```bash
 npm run build
 ```
-
-## Current features
-- Add multiple images.
-- Move, resize, and rotate each image.
-- Export composition as A4 PDF.
-- Rotation slider and fine-tune buttons for selected image.
