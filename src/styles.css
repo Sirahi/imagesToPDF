@@ -29,6 +29,48 @@ h1 {
   margin: 1rem 0;
 }
 
+.debug-controls {
+  margin-bottom: 0.5rem;
+}
+
+.import-error {
+  margin: 0 0 0.75rem 0;
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.debug-panel {
+  background: #111827;
+  color: #e5e7eb;
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.debug-panel ul {
+  margin: 0;
+  padding-left: 1rem;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.debug-panel li {
+  margin: 0.35rem 0;
+  word-break: break-word;
+}
+
+.debug-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.debug-header h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
 .button,
 button {
   background: #e5e7eb;

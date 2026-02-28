@@ -2,6 +2,8 @@ import { useMemo, useRef, useState } from 'react';
 import { Layer, Rect, Stage, Image as KonvaImage, Transformer } from 'react-konva';
 import { PDFDocument, degrees } from 'pdf-lib';
 import type Konva from 'konva';
+import { useDebugLogger } from './useDebugLogger';
+import DebugPanel from './DebugPanel';
 
 type PlacedImage = {
   id: string;
@@ -17,6 +19,8 @@ type PlacedImage = {
 const A4_RATIO = 210 / 297;
 const A4_WIDTH_PT = 595.28;
 const A4_HEIGHT_PT = 841.89;
+const createId = () =>
+  globalThis.crypto?.randomUUID?.() ?? `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 const readFileAsDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
@@ -42,6 +46,8 @@ const App = () => {
   const [items, setItems] = useState<PlacedImage[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const { debugEnabled, showDebug, setShowDebug, debugEntries, appendDebug, clearDebug } = useDebugLogger();
 
   const stageWidth = useMemo(() => {
     const viewportWidth = stageContainerRef.current?.clientWidth ?? 360;
@@ -74,26 +80,45 @@ const App = () => {
       return;
     }
 
+    setImportError(null);
     const incoming: PlacedImage[] = [];
+    const failedNames: string[] = [];
     for (const file of Array.from(fileList)) {
-      const dataUrl = await readFileAsDataUrl(file);
-      const htmlImage = await loadImage(dataUrl);
-      const baseWidth = Math.min(stageWidth * 0.35, htmlImage.width);
-      const baseHeight = (baseWidth / htmlImage.width) * htmlImage.height;
-      incoming.push({
-        id: crypto.randomUUID(),
-        dataUrl,
-        htmlImage,
-        x: stageWidth / 2 - baseWidth / 2,
-        y: stageHeight / 2 - baseHeight / 2,
-        width: baseWidth,
-        height: baseHeight,
-        rotation: 0
-      });
+      try {
+        const dataUrl = await readFileAsDataUrl(file);
+        const htmlImage = await loadImage(dataUrl);
+        const baseWidth = Math.min(stageWidth * 0.35, htmlImage.width);
+        const baseHeight = (baseWidth / htmlImage.width) * htmlImage.height;
+        incoming.push({
+          id: createId(),
+          dataUrl,
+          htmlImage,
+          x: stageWidth / 2 - baseWidth / 2,
+          y: stageHeight / 2 - baseHeight / 2,
+          width: baseWidth,
+          height: baseHeight,
+          rotation: 0
+        });
+      } catch (error) {
+        failedNames.push(file.name);
+        const message = error instanceof Error ? error.message : String(error);
+        appendDebug(`Failed file: ${file.name} -> ${message}`);
+      }
     }
 
-    setItems((current) => [...current, ...incoming]);
-    setSelectedId(incoming[incoming.length - 1]?.id ?? null);
+    if (incoming.length) {
+      setItems((current) => [...current, ...incoming]);
+      setSelectedId(incoming[incoming.length - 1]?.id ?? null);
+    }
+
+    if (failedNames.length) {
+      setImportError(
+        failedNames.length === 1
+          ? `Could not load "${failedNames[0]}".`
+          : `Could not load ${failedNames.length} images.`
+      );
+    }
+
     event.target.value = '';
   };
 
@@ -170,6 +195,15 @@ const App = () => {
           {isExporting ? 'Exporting…' : 'Export A4 PDF'}
         </button>
       </div>
+
+      <DebugPanel
+        debugEnabled={debugEnabled}
+        showDebug={showDebug}
+        onToggle={() => setShowDebug((current) => !current)}
+        entries={debugEntries}
+        onClear={clearDebug}
+        importError={importError}
+      />
 
       <div className="editor-panel">
         <div className="stage-wrap" ref={stageContainerRef}>
