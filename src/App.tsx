@@ -40,7 +40,7 @@ const PAGE_PRESETS: Record<PageSizeKey, { label: string; ratio: number; pdfWidth
     pdfHeightPt: 841.89
   },
   '6x4': {
-    label: '6 x 4 (W x L)',
+    label: '6 x 4',
     ratio: 6 / 4,
     pdfWidthPt: 432,
     pdfHeightPt: 288
@@ -169,6 +169,7 @@ const App = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [interactionMode, setInteractionMode] = useState<'move' | 'transform'>('move');
   const [snapEnabled, setSnapEnabled] = useState(true);
+  const [darkThemeEnabled, setDarkThemeEnabled] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [pageSize, setPageSize] = useState<PageSizeKey>('a4');
@@ -183,6 +184,13 @@ const App = () => {
   const selectedItem = items.find((item) => item.id === selectedId) ?? null;
   const selectedPage = PAGE_PRESETS[pageSize];
   const isLayoutReady = containerWidth > 0 && maxStageHeight > 0;
+
+  useEffect(() => {
+    document.body.classList.toggle('theme-dark-body', darkThemeEnabled);
+    return () => {
+      document.body.classList.remove('theme-dark-body');
+    };
+  }, [darkThemeEnabled]);
 
   useEffect(() => {
     const element = stageContainerRef.current;
@@ -221,6 +229,8 @@ const App = () => {
   }, [containerWidth, maxStageHeight, selectedPage.ratio]);
 
   const stageHeight = stageWidth / selectedPage.ratio;
+  const canvasPreviewFill = darkThemeEnabled ? '#0b1020' : '#ffffff';
+  const canvasPreviewStroke = darkThemeEnabled ? '#4b5563' : '#cccccc';
   const selectedDeleteIconPosition = useMemo(() => {
     if (!selectedItem || draggingId === selectedItem.id) {
       return null;
@@ -686,7 +696,7 @@ const App = () => {
   bindTransformer();
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${darkThemeEnabled ? ' theme-dark' : ''}`}>
       <div className="toolbar">
         <label className="button primary">
           Add Image
@@ -707,8 +717,22 @@ const App = () => {
           Delete All
         </button>
         <button type="button" className="success" onClick={exportPdf} disabled={isExporting || isImporting || !items.length}>
-          {isExporting ? 'Exporting…' : 'Export As PDF'}
+          {isExporting ? 'Exporting...' : 'Export As PDF'}
         </button>
+        <label className="page-size-picker">
+          Size
+          <select
+            value={pageSize}
+            onChange={(event) => setPageSize(event.target.value as PageSizeKey)}
+            disabled={isImporting || isExporting}
+          >
+            {(Object.keys(PAGE_PRESETS) as PageSizeKey[]).map((key) => (
+              <option key={key} value={key}>
+                {PAGE_PRESETS[key].label}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       <div className="mode-row">
@@ -736,6 +760,34 @@ const App = () => {
             />
             <span className="mode-slider" aria-hidden="true" />
           </label>
+          <label className="mode-switch theme-switch" htmlFor="theme-switch">
+            <span className="mode-label mode-label-theme-light" aria-hidden="true">
+              <svg className="theme-icon" viewBox="0 0 24 24" focusable="false">
+                <circle cx="12" cy="12" r="4" />
+                <line x1="12" y1="2" x2="12" y2="5" />
+                <line x1="12" y1="19" x2="12" y2="22" />
+                <line x1="2" y1="12" x2="5" y2="12" />
+                <line x1="19" y1="12" x2="22" y2="12" />
+                <line x1="4.9" y1="4.9" x2="7" y2="7" />
+                <line x1="17" y1="17" x2="19.1" y2="19.1" />
+                <line x1="4.9" y1="19.1" x2="7" y2="17" />
+                <line x1="17" y1="7" x2="19.1" y2="4.9" />
+              </svg>
+            </span>
+            <input
+              id="theme-switch"
+              type="checkbox"
+              checked={darkThemeEnabled}
+              onChange={() => setDarkThemeEnabled((current) => !current)}
+              aria-label="Toggle light and dark theme"
+            />
+            <span className="mode-slider" aria-hidden="true" />
+            <span className="mode-label mode-label-theme-dark" aria-hidden="true">
+              <svg className="theme-icon" viewBox="0 0 24 24" focusable="false">
+                <path d="M21 13.2A9 9 0 1 1 10.8 3 7 7 0 1 0 21 13.2z" />
+              </svg>
+            </span>
+          </label>
         </div>
         <button
           type="button"
@@ -747,22 +799,6 @@ const App = () => {
         >
           {'\u21BA'}
         </button>
-      </div>
-      <div className="page-size-row">
-        <label className="page-size-picker">
-          Size
-          <select
-            value={pageSize}
-            onChange={(event) => setPageSize(event.target.value as PageSizeKey)}
-            disabled={isImporting || isExporting}
-          >
-            {(Object.keys(PAGE_PRESETS) as PageSizeKey[]).map((key) => (
-              <option key={key} value={key}>
-                {PAGE_PRESETS[key].label}
-              </option>
-            ))}
-          </select>
-        </label>
       </div>
       {selectedItem ? (
         <div className="selection-controls">
@@ -785,7 +821,10 @@ const App = () => {
             value={Math.round(normalizeRotation(selectedItem.rotation))}
             onChange={(event) => setItemRotation(selectedItem.id, Number(event.target.value))}
           />
-          <span>{Math.round(normalizeRotation(selectedItem.rotation))}Â°</span>
+          <span>
+            {Math.round(normalizeRotation(selectedItem.rotation))}
+            {'\u00B0'}
+          </span>
         </div>
       ) : null}
       {exportError ? <p className="import-error">{exportError}</p> : null}
@@ -822,7 +861,14 @@ const App = () => {
             }}
           >
             <Layer>
-              <Rect width={stageWidth} height={stageHeight} fill="#fff" stroke="#ccc" strokeWidth={2} cornerRadius={0} />
+              <Rect
+                width={stageWidth}
+                height={stageHeight}
+                fill={canvasPreviewFill}
+                stroke={canvasPreviewStroke}
+                strokeWidth={2}
+                cornerRadius={0}
+              />
               {items.map((item) => (
                 <KonvaImage
                   key={item.id}
