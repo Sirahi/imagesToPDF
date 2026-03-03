@@ -7,6 +7,7 @@ import DebugPanel from './DebugPanel';
 type PlacedImage = {
   id: string;
   dataUrl: string;
+  mimeType: string;
   htmlImage: HTMLImageElement;
   originalWidth: number;
   originalHeight: number;
@@ -117,6 +118,22 @@ const loadImage = (src: string) =>
     image.src = src;
   });
 
+const detectDataUrlMimeType = (dataUrl: string) => {
+  const commaIndex = dataUrl.indexOf(',');
+  if (commaIndex === -1) {
+    return '';
+  }
+  const header = dataUrl.slice(0, commaIndex).toLowerCase();
+  if (!header.startsWith('data:')) {
+    return '';
+  }
+  const semicolonIndex = header.indexOf(';');
+  if (semicolonIndex === -1) {
+    return '';
+  }
+  return header.slice(5, semicolonIndex);
+};
+
 const normalizeImageFile = async (file: File) => {
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d');
@@ -136,9 +153,17 @@ const normalizeImageFile = async (file: File) => {
       context.drawImage(bitmap, 0, 0);
       bitmap.close();
 
-      const normalizedDataUrl = canvas.toDataURL('image/png');
+      const preferredMimeType = file.type.toLowerCase();
+      const supportedOutputMimeType = ALLOWED_IMAGE_MIME_TYPES.has(preferredMimeType)
+        ? preferredMimeType
+        : 'image/png';
+      const normalizedDataUrl =
+        supportedOutputMimeType === 'image/jpeg'
+          ? canvas.toDataURL(supportedOutputMimeType, 0.95)
+          : canvas.toDataURL(supportedOutputMimeType);
+      const normalizedMimeType = detectDataUrlMimeType(normalizedDataUrl) || 'image/png';
       const normalizedImage = await loadImage(normalizedDataUrl);
-      return { dataUrl: normalizedDataUrl, htmlImage: normalizedImage };
+      return { dataUrl: normalizedDataUrl, mimeType: normalizedMimeType, htmlImage: normalizedImage };
     } catch {
       // Fallback to Image decode path below.
     }
@@ -155,9 +180,17 @@ const normalizeImageFile = async (file: File) => {
   canvas.height = height;
   context.drawImage(sourceImage, 0, 0, width, height);
 
-  const normalizedDataUrl = canvas.toDataURL('image/png');
+  const preferredMimeType = file.type.toLowerCase();
+  const supportedOutputMimeType = ALLOWED_IMAGE_MIME_TYPES.has(preferredMimeType)
+    ? preferredMimeType
+    : 'image/png';
+  const normalizedDataUrl =
+    supportedOutputMimeType === 'image/jpeg'
+      ? canvas.toDataURL(supportedOutputMimeType, 0.95)
+      : canvas.toDataURL(supportedOutputMimeType);
+  const normalizedMimeType = detectDataUrlMimeType(normalizedDataUrl) || 'image/png';
   const normalizedImage = await loadImage(normalizedDataUrl);
-  return { dataUrl: normalizedDataUrl, htmlImage: normalizedImage };
+  return { dataUrl: normalizedDataUrl, mimeType: normalizedMimeType, htmlImage: normalizedImage };
 };
 
 const App = () => {
@@ -458,7 +491,7 @@ const App = () => {
         }
 
         try {
-          const { dataUrl, htmlImage } = await normalizeImageFile(file);
+          const { dataUrl, mimeType, htmlImage } = await normalizeImageFile(file);
           const baseWidth = Math.min(stageWidth * 0.35, htmlImage.width);
           const baseHeight = (baseWidth / htmlImage.width) * htmlImage.height;
           const initialFactor = scaleFactorFromPercent(DEFAULT_SCALE_PERCENT);
@@ -467,6 +500,7 @@ const App = () => {
           incoming.push({
             id: createId(),
             dataUrl,
+            mimeType,
             htmlImage,
             originalWidth: baseWidth,
             originalHeight: baseHeight,
@@ -646,11 +680,12 @@ const App = () => {
             stageHeight,
             pageWidthPt: selectedPage.pdfWidthPt,
             pageHeightPt: selectedPage.pdfHeightPt,
-            items: items.map((item) => ({
-              dataUrl: item.dataUrl,
-              x: item.x,
-              y: item.y,
-              width: item.width,
+              items: items.map((item) => ({
+                dataUrl: item.dataUrl,
+                mimeType: item.mimeType,
+                x: item.x,
+                y: item.y,
+                width: item.width,
               height: item.height,
               rotation: item.rotation
             }))
