@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Layer, Line, Rect, Stage, Image as KonvaImage, Transformer } from 'react-konva';
 import type Konva from 'konva';
 import { useDebugLogger } from './useDebugLogger';
@@ -23,8 +23,8 @@ type SnapGuides = {
   vertical: number | null;
   horizontal: number | null;
 };
+type PageSizeKey = 'a4' | '6x4';
 
-const A4_RATIO = 210 / 297;
 const MAX_FILES_PER_IMPORT = 12;
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 const MAX_DECODED_PIXELS = 40_000_000;
@@ -32,6 +32,20 @@ const SNAP_DISTANCE_PX = 10;
 const DELETE_ICON_SIZE = 24;
 const DEFAULT_SCALE_PERCENT = 50;
 const ALLOWED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const PAGE_PRESETS: Record<PageSizeKey, { label: string; ratio: number; pdfWidthPt: number; pdfHeightPt: number }> = {
+  a4: {
+    label: 'A4',
+    ratio: 210 / 297,
+    pdfWidthPt: 595.28,
+    pdfHeightPt: 841.89
+  },
+  '6x4': {
+    label: '6 x 4 (W x L)',
+    ratio: 6 / 4,
+    pdfWidthPt: 432,
+    pdfHeightPt: 288
+  }
+};
 const createId = () =>
   globalThis.crypto?.randomUUID?.() ?? `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
@@ -157,6 +171,7 @@ const App = () => {
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [isImporting, setIsImporting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [pageSize, setPageSize] = useState<PageSizeKey>('a4');
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
@@ -166,6 +181,8 @@ const App = () => {
   const [snapGuides, setSnapGuides] = useState<SnapGuides>({ vertical: null, horizontal: null });
   const { debugEnabled, showDebug, setShowDebug, debugEntries, appendDebug, clearDebug } = useDebugLogger();
   const selectedItem = items.find((item) => item.id === selectedId) ?? null;
+  const selectedPage = PAGE_PRESETS[pageSize];
+  const isLayoutReady = containerWidth > 0 && maxStageHeight > 0;
 
   useEffect(() => {
     const element = stageContainerRef.current;
@@ -199,11 +216,11 @@ const App = () => {
   const stageWidth = useMemo(() => {
     const fallbackWidth = typeof window === 'undefined' ? 320 : window.innerWidth - 32;
     const availableWidth = containerWidth || fallbackWidth;
-    const widthFromHeight = (maxStageHeight || 360) * A4_RATIO;
+    const widthFromHeight = (maxStageHeight || 360) * selectedPage.ratio;
     return clamp(Math.min(availableWidth, widthFromHeight), 220, 640);
-  }, [containerWidth, maxStageHeight]);
+  }, [containerWidth, maxStageHeight, selectedPage.ratio]);
 
-  const stageHeight = stageWidth / A4_RATIO;
+  const stageHeight = stageWidth / selectedPage.ratio;
   const selectedDeleteIconPosition = useMemo(() => {
     if (!selectedItem || draggingId === selectedItem.id) {
       return null;
@@ -230,6 +247,21 @@ const App = () => {
       y: y + (clampedCenterY - center.y)
     };
   };
+  useEffect(() => {
+    setItems((current) =>
+      current.map((item) => {
+        const constrained = constrainPositionByCenter(item.x, item.y, item.width, item.height, item.rotation);
+        if (constrained.x === item.x && constrained.y === item.y) {
+          return item;
+        }
+        return {
+          ...item,
+          x: constrained.x,
+          y: constrained.y
+        };
+      })
+    );
+  }, [stageWidth, stageHeight]);
   const findClosestSnap = (
     anchors: Array<{ value: number; kind: 'center' | 'edge' }>,
     targets: Array<{ value: number; kind: 'center' | 'edge' }>,
@@ -602,6 +634,8 @@ const App = () => {
           payload: {
             stageWidth,
             stageHeight,
+            pageWidthPt: selectedPage.pdfWidthPt,
+            pageHeightPt: selectedPage.pdfHeightPt,
             items: items.map((item) => ({
               dataUrl: item.dataUrl,
               x: item.x,
@@ -637,6 +671,9 @@ const App = () => {
     if (!items.length || isExporting || isImporting) {
       return;
     }
+    setSelectedId(null);
+    setDraggingId(null);
+    setSnapGuides({ vertical: null, horizontal: null });
     setExportError(null);
     setIsExporting(true);
     requestAnimationFrame(() => {
@@ -670,7 +707,7 @@ const App = () => {
           Delete All
         </button>
         <button type="button" className="success" onClick={exportPdf} disabled={isExporting || isImporting || !items.length}>
-          {isExporting ? 'Exporting…' : 'Export A4 PDF'}
+          {isExporting ? 'Exporting…' : 'Export As PDF'}
         </button>
       </div>
 
@@ -708,10 +745,25 @@ const App = () => {
           title="Reset selected image (scale 100%, rotation 0, undo stretch)"
           aria-label="Reset selected image"
         >
-          ↺
+          {'\u21BA'}
         </button>
       </div>
-
+      <div className="page-size-row">
+        <label className="page-size-picker">
+          Size
+          <select
+            value={pageSize}
+            onChange={(event) => setPageSize(event.target.value as PageSizeKey)}
+            disabled={isImporting || isExporting}
+          >
+            {(Object.keys(PAGE_PRESETS) as PageSizeKey[]).map((key) => (
+              <option key={key} value={key}>
+                {PAGE_PRESETS[key].label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       {selectedItem ? (
         <div className="selection-controls">
           <label htmlFor="scale-slider">Scale</label>
@@ -733,7 +785,7 @@ const App = () => {
             value={Math.round(normalizeRotation(selectedItem.rotation))}
             onChange={(event) => setItemRotation(selectedItem.id, Number(event.target.value))}
           />
-          <span>{Math.round(normalizeRotation(selectedItem.rotation))}°</span>
+          <span>{Math.round(normalizeRotation(selectedItem.rotation))}Â°</span>
         </div>
       ) : null}
       {exportError ? <p className="import-error">{exportError}</p> : null}
@@ -757,6 +809,7 @@ const App = () => {
           <Stage
             width={stageWidth}
             height={stageHeight}
+            style={isLayoutReady ? undefined : { visibility: 'hidden' }}
             onMouseDown={(event) => {
               if (event.target === event.target.getStage()) {
                 setSelectedId(null);
@@ -978,3 +1031,6 @@ const App = () => {
 };
 
 export default App;
+
+
+

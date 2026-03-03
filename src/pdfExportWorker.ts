@@ -14,6 +14,8 @@ type ExportRequestMessage = {
   payload: {
     stageWidth: number;
     stageHeight: number;
+    pageWidthPt: number;
+    pageHeightPt: number;
     items: WorkerExportItem[];
   };
 };
@@ -32,8 +34,6 @@ type WorkerScope = {
   onmessage: ((event: MessageEvent<ExportRequestMessage>) => void) | null;
 };
 
-const A4_WIDTH_PT = 595.28;
-const A4_HEIGHT_PT = 841.89;
 const workerScope = self as unknown as WorkerScope;
 
 const dataUrlToBytes = (dataUrl: string) => {
@@ -58,9 +58,9 @@ const dataUrlToBytes = (dataUrl: string) => {
 
 const createPdfBytes = async (payload: ExportRequestMessage['payload']) => {
   const pdfDoc = await PDFDocument.create();
-  const page = pdfDoc.addPage([A4_WIDTH_PT, A4_HEIGHT_PT]);
-  const scaleX = A4_WIDTH_PT / payload.stageWidth;
-  const scaleY = A4_HEIGHT_PT / payload.stageHeight;
+  const page = pdfDoc.addPage([payload.pageWidthPt, payload.pageHeightPt]);
+  const scaleX = payload.pageWidthPt / payload.stageWidth;
+  const scaleY = payload.pageHeightPt / payload.stageHeight;
 
   for (const item of payload.items) {
     const imageBytes = dataUrlToBytes(item.dataUrl);
@@ -70,7 +70,7 @@ const createPdfBytes = async (payload: ExportRequestMessage['payload']) => {
 
     page.drawImage(embeddedImage, {
       x: item.x * scaleX,
-      y: A4_HEIGHT_PT - (item.y * scaleY) - height,
+      y: payload.pageHeightPt - (item.y * scaleY) - height,
       width,
       height,
       rotate: degrees(-item.rotation)
