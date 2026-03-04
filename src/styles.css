@@ -353,6 +353,15 @@ button:disabled {
   align-items: start;
 }
 
+.app-footer {
+  margin-top: 0.75rem;
+  padding-top: 0.35rem;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--ui-muted-text);
+  opacity: 0.9;
+}
+
 .confirm-overlay {
   position: fixed;
   inset: 0;

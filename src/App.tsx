@@ -25,6 +25,12 @@ type SnapGuides = {
   horizontal: number | null;
 };
 type PageSizeKey = 'a4' | '6x4';
+type PersistedUiPreferences = {
+  interactionMode: 'move' | 'transform';
+  snapEnabled: boolean;
+  darkThemeEnabled: boolean;
+  pageSize: PageSizeKey;
+};
 
 const MAX_FILES_PER_IMPORT = 12;
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
@@ -47,6 +53,7 @@ const PAGE_PRESETS: Record<PageSizeKey, { label: string; ratio: number; pdfWidth
     pdfHeightPt: 288
   }
 };
+const UI_PREFERENCES_STORAGE_KEY = 'images-to-pdf-ui-preferences-v1';
 const createId = () =>
   globalThis.crypto?.randomUUID?.() ?? `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
@@ -193,19 +200,50 @@ const normalizeImageFile = async (file: File) => {
   return { dataUrl: normalizedDataUrl, mimeType: normalizedMimeType, htmlImage: normalizedImage };
 };
 
+const loadUiPreferences = (): PersistedUiPreferences => {
+  const defaults: PersistedUiPreferences = {
+    interactionMode: 'move',
+    snapEnabled: true,
+    darkThemeEnabled: false,
+    pageSize: 'a4'
+  };
+
+  if (typeof window === 'undefined') {
+    return defaults;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(UI_PREFERENCES_STORAGE_KEY);
+    if (!raw) {
+      return defaults;
+    }
+    const parsed = JSON.parse(raw) as Partial<PersistedUiPreferences>;
+    return {
+      interactionMode: parsed.interactionMode === 'transform' ? 'transform' : 'move',
+      snapEnabled: typeof parsed.snapEnabled === 'boolean' ? parsed.snapEnabled : defaults.snapEnabled,
+      darkThemeEnabled:
+        typeof parsed.darkThemeEnabled === 'boolean' ? parsed.darkThemeEnabled : defaults.darkThemeEnabled,
+      pageSize: parsed.pageSize && parsed.pageSize in PAGE_PRESETS ? parsed.pageSize : defaults.pageSize
+    };
+  } catch {
+    return defaults;
+  }
+};
+
 const App = () => {
   const stageContainerRef = useRef<HTMLDivElement | null>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
   const shapeRefs = useRef<Record<string, Konva.Image | null>>({});
+  const initialUiPreferences = useMemo(loadUiPreferences, []);
 
   const [items, setItems] = useState<PlacedImage[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [interactionMode, setInteractionMode] = useState<'move' | 'transform'>('move');
-  const [snapEnabled, setSnapEnabled] = useState(true);
-  const [darkThemeEnabled, setDarkThemeEnabled] = useState(false);
+  const [interactionMode, setInteractionMode] = useState<'move' | 'transform'>(initialUiPreferences.interactionMode);
+  const [snapEnabled, setSnapEnabled] = useState(initialUiPreferences.snapEnabled);
+  const [darkThemeEnabled, setDarkThemeEnabled] = useState(initialUiPreferences.darkThemeEnabled);
   const [isImporting, setIsImporting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [pageSize, setPageSize] = useState<PageSizeKey>('a4');
+  const [pageSize, setPageSize] = useState<PageSizeKey>(initialUiPreferences.pageSize);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
@@ -224,6 +262,18 @@ const App = () => {
       document.body.classList.remove('theme-dark-body');
     };
   }, [darkThemeEnabled]);
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const preferences: PersistedUiPreferences = {
+      interactionMode,
+      snapEnabled,
+      darkThemeEnabled,
+      pageSize
+    };
+    window.localStorage.setItem(UI_PREFERENCES_STORAGE_KEY, JSON.stringify(preferences));
+  }, [interactionMode, snapEnabled, darkThemeEnabled, pageSize]);
 
   useEffect(() => {
     const element = stageContainerRef.current;
@@ -1096,6 +1146,9 @@ const App = () => {
         </div>
 
       </div>
+      <footer className="app-footer" aria-label="Application metadata">
+        Copyright Sirahi | {__APP_VERSION__}
+      </footer>
       {showDeleteAllConfirm ? (
         <div className="confirm-overlay" role="dialog" aria-modal="true" aria-label="Delete all confirmation">
           <div className="confirm-card">

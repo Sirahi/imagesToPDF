@@ -6,6 +6,27 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [1.0.8] - 2026-03-04
+
+### Added
+- Added a footer with `Copyright Sirahi`.
+- Added app version display in the footer.
+- Added persistence for UI preferences between browser sessions:
+  - `Move/Stretch` mode
+  - `Snap` toggle
+  - `Theme` toggle
+  - page size dropdown value
+- Added light/dark theme toggle with icon-only labels.
+- Added dark theme styling for app shell, controls, dropdowns, canvas preview, modal, and undo button.
+
+### Changed
+- Moved page size dropdown into the top toolbar next to action buttons.
+- Reduced toolbar control sizes for better fit on small screens.
+- Kept toolbar on one line with horizontal scroll fallback on narrow screens.
+- Fixed degree symbol rendering for rotation label.
+- Updated import/export pipeline to preserve source image format (`JPEG`/`PNG`/`WebP` fallback path) instead of forcing PNG.
+- Added export-time image deduplication in PDF generation to reduce output size when reusing the same image.
+
 ### Added
 - Added explicit interaction modes for editing:
   - `Move` mode for drag-only positioning
